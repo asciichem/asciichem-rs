@@ -1,0 +1,9 @@
+[package]
+name = "asciichem"
+version = "0.1.0"
+edition = "2021"
+description = "AsciiChem: ASCII syntax for chemistry parsed into a semantic model"
+license = "BSD-2-Clause"
+repository = "https://github.com/asciichem/asciichem-rs"
+
+[dependencies]
