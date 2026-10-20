@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Clone conformance corpus (asciichem-tests)
+        uses: actions/checkout@v7
+        with:
+          repository: asciichem/asciichem-tests
+          path: .asciichem-tests
+      - name: Point the suite at the corpus
+        run: echo "ASCIICHEM_CORPUS=$(pwd)/.asciichem-tests/corpus/fixtures" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test

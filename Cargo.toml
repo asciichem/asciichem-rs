@@ -7,3 +7,7 @@ license = "BSD-2-Clause"
 repository = "https://github.com/asciichem/asciichem-rs"
 
 [dependencies]
+parsanol = "0.18.9"
+
+[dev-dependencies]
+serde_json = "1.0.154"
