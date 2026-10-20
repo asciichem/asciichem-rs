@@ -16,10 +16,15 @@ that [asciichem-ruby](https://github.com/asciichem/asciichem-ruby)
 
 ## Status
 
-Scaffold. Implementation follows the
-[corpus](https://github.com/asciichem/asciichem-tests) fixture
-contract (parse/reject/round-trip), then output formats per the
-reference implementation's coverage.
+**Parse contract at 100%** — the crate consumes the compiled PARG
+artifact of the AsciiChem grammar (`artifacts/asciichem.json`,
+checksummed and verified by `parsanol`) and runs it on parsanol's
+portable engine; the shared corpus's acceptance/rejection contract
+passes in CI. Deeply nested input runs on a dedicated large-stack
+thread.
+
+Next slices follow the corpus: the semantic model and canonical text
+(round-trip), then the renderers.
 
 ## Development
 
