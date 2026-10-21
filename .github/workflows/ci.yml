@@ -5,6 +5,12 @@ on:
   push:
     branches: [main]
 
+env:
+  # Hermetic CI: the corpus ref is pinned, never floating. Bump this
+  # one line deliberately with each corpus release (the tag carries
+  # what changed).
+  CORPUS_REF: v0.8.0
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -14,6 +20,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: asciichem/asciichem-tests
+          ref: ${{ env.CORPUS_REF }}
           path: .asciichem-tests
       - name: Point the suite at the corpus
         run: echo "ASCIICHEM_CORPUS=$(pwd)/.asciichem-tests/corpus/fixtures" >> "$GITHUB_ENV"
