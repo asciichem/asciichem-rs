@@ -7,14 +7,16 @@
 //! engine — the same artifact the reference implementation's `:parg`
 //! engine runs.
 //!
-//! Current scope: parse acceptance/rejection, the L1 text round-trip
-//! contract, and L2 MathML goldens over the shared corpus — the parse
-//! tree walks through parsanol's parslet-compatible transform into the
-//! DSL shapes (`value`), a typed model subset (`model`) built from
-//! them (`build`), with the canonical text renderer on the model and
-//! the MathML renderer (`mathml`) byte-exact against the corpus
-//! goldens. Constructs outside the subset report `Unsupported` rather
-//! than guessing; SVG and the wire form follow in later slices.
+//! Current scope: parse acceptance/rejection, the L0 wire round-trip,
+//! the L1 text round-trip, and L2 MathML goldens over the shared
+//! corpus — the parse tree walks through parsanol's parslet-compatible
+//! transform into the DSL shapes (`value`), a typed model subset
+//! (`model`) built from them (`build`), with the canonical text
+//! renderer on the model, the MathML renderer (`mathml`) byte-exact
+//! against the corpus goldens, and the canonical wire JSON (`wire`)
+//! field-for-field with the shared v1 schemas. Constructs outside the
+//! subset report `Unsupported` rather than guessing; SVG follows in a
+//! later slice.
 
 use std::sync::OnceLock;
 
@@ -22,6 +24,7 @@ pub mod build;
 pub mod mathml;
 pub mod model;
 pub mod value;
+pub mod wire;
 
 use parsanol::portable::grammar::Grammar;
 use parsanol::{AstArena, PargArtifact, PortableParser};
