@@ -51,7 +51,7 @@ pub struct Group {
 }
 
 impl Group {
-    fn chars(&self) -> (&'static str, &'static str) {
+    pub fn chars(&self) -> (&'static str, &'static str) {
         match self.bracket.as_str() {
             "square" => ("[", "]"),
             "brace" => ("{", "}"),
@@ -89,7 +89,7 @@ pub struct Molecule {
 }
 
 impl Molecule {
-    fn stereo_letter(&self) -> Option<&str> {
+    pub fn stereo_letter(&self) -> Option<&str> {
         self.stereo.as_deref()
     }
 }
