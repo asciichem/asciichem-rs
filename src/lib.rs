@@ -7,14 +7,22 @@
 //! engine — the same artifact the reference implementation's `:parg`
 //! engine runs.
 //!
-//! Current scope: parse acceptance/rejection over the shared corpus.
-//! The model, transform, and renderers follow the corpus contract in
-//! later slices.
+//! Current scope: parse acceptance/rejection plus the L1 text
+//! round-trip contract over the shared corpus — the parse tree walks
+//! through parsanol's parslet-compatible transform into the DSL shapes
+//! (`value`), a typed model subset (`model`) built from them
+//! (`build`), and the canonical text renderer. Constructs outside the
+//! subset report `Unsupported` rather than guessing; renderers follow
+//! the corpus contract in later slices.
 
 use std::sync::OnceLock;
 
+pub mod build;
+pub mod model;
+pub mod value;
+
 use parsanol::portable::grammar::Grammar;
-use parsanol::PargArtifact;
+use parsanol::{AstArena, PargArtifact, PortableParser};
 
 const ARTIFACT: &str = include_str!("../artifacts/asciichem.json");
 
@@ -33,7 +41,7 @@ impl std::fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
-fn grammar() -> Result<&'static Grammar, ParseError> {
+pub fn grammar() -> Result<&'static Grammar, ParseError> {
     static CELL: OnceLock<Result<Grammar, String>> = OnceLock::new();
     let loaded = CELL.get_or_init(|| {
         let artifact = PargArtifact::from_json(ARTIFACT)
@@ -52,6 +60,57 @@ fn grammar() -> Result<&'static Grammar, ParseError> {
 /// runs on a dedicated thread with a generous stack — reserved
 /// virtually, committed only as used.
 const PARSE_STACK_BYTES: usize = 64 * 1024 * 1024;
+
+/// Parses AsciiChem text and renders the canonical text form:
+/// `parse_to_text(s) == s` for canonical `s` (the round-trip
+/// contract). Constructs outside the model subset raise
+/// `ParseError::Unsupported` — reported as such, never guessed.
+pub fn parse_to_text(input: &str) -> Result<String, ParseError> {
+    let source = input.trim().to_string();
+    std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .name("asciichem-parse".into())
+            .stack_size(PARSE_STACK_BYTES)
+            .spawn_scoped(scope, || parse_to_text_inner(&source))
+            .expect("spawn parser thread")
+            .join()
+            .expect("parser thread panicked")
+    })
+}
+
+fn parse_to_text_inner(source: &str) -> Result<String, ParseError> {
+    let value = parse_value(source)?;
+    let nodes = build::build_formula(&value).map_err(|error| ParseError {
+        message: error.to_string(),
+    })?;
+    let rendered: Vec<String> = nodes.iter().map(|n| n.to_string()).collect();
+    Ok(rendered.join(" "))
+}
+
+fn parse_value(source: &str) -> Result<parsanol::portable::transform::Value, ParseError> {
+    let grammar = grammar()?;
+    let mut arena = AstArena::for_input(source.len());
+    let mut parser = PortableParser::new(grammar, source, &mut arena);
+    let result = parser.parse_with_end_pos().map_err(|error| ParseError {
+        message: error.to_string(),
+    })?;
+    if result.end_pos < source.len() {
+        return Err(ParseError {
+            message: format!(
+                "input not fully captured: consumed {} of {} bytes",
+                result.end_pos,
+                source.len()
+            ),
+        });
+    }
+    let shaped = parsanol::portable::parslet_transform::to_parslet_compatible(
+        &result.value,
+        &mut arena,
+        source,
+    );
+    let value = parsanol::portable::transform::ast_to_value(&shaped, &arena, source);
+    Ok(value::normalise(&value))
+}
 
 /// Parses AsciiChem text through the PARG grammar. `Ok(())` when the
 /// whole trimmed input is accepted; a rejection or a short capture is
