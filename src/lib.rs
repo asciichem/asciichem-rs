@@ -21,8 +21,10 @@
 use std::sync::OnceLock;
 
 pub mod build;
+pub mod layout;
 pub mod mathml;
 pub mod model;
+pub mod svg;
 pub mod value;
 pub mod wire;
 
