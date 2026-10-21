@@ -7,17 +7,19 @@
 //! engine — the same artifact the reference implementation's `:parg`
 //! engine runs.
 //!
-//! Current scope: parse acceptance/rejection plus the L1 text
-//! round-trip contract over the shared corpus — the parse tree walks
-//! through parsanol's parslet-compatible transform into the DSL shapes
-//! (`value`), a typed model subset (`model`) built from them
-//! (`build`), and the canonical text renderer. Constructs outside the
-//! subset report `Unsupported` rather than guessing; renderers follow
-//! the corpus contract in later slices.
+//! Current scope: parse acceptance/rejection, the L1 text round-trip
+//! contract, and L2 MathML goldens over the shared corpus — the parse
+//! tree walks through parsanol's parslet-compatible transform into the
+//! DSL shapes (`value`), a typed model subset (`model`) built from
+//! them (`build`), with the canonical text renderer on the model and
+//! the MathML renderer (`mathml`) byte-exact against the corpus
+//! goldens. Constructs outside the subset report `Unsupported` rather
+//! than guessing; SVG and the wire form follow in later slices.
 
 use std::sync::OnceLock;
 
 pub mod build;
+pub mod mathml;
 pub mod model;
 pub mod value;
 
@@ -65,6 +67,26 @@ const PARSE_STACK_BYTES: usize = 64 * 1024 * 1024;
 /// `parse_to_text(s) == s` for canonical `s` (the round-trip
 /// contract). Constructs outside the model subset raise
 /// `ParseError::Unsupported` — reported as such, never guessed.
+/// Parses AsciiChem text into the model subset's formula nodes —
+/// the shared front half of every renderer.
+pub fn parse_nodes(input: &str) -> Result<Vec<model::Node>, ParseError> {
+    let source = input.trim().to_string();
+    std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .name("asciichem-parse".into())
+            .stack_size(PARSE_STACK_BYTES)
+            .spawn_scoped(scope, || {
+                let value = parse_value(&source)?;
+                build::build_formula(&value).map_err(|error| ParseError {
+                    message: error.to_string(),
+                })
+            })
+            .expect("spawn parser thread")
+            .join()
+            .expect("parser thread panicked")
+    })
+}
+
 pub fn parse_to_text(input: &str) -> Result<String, ParseError> {
     let source = input.trim().to_string();
     std::thread::scope(|scope| {
@@ -79,10 +101,7 @@ pub fn parse_to_text(input: &str) -> Result<String, ParseError> {
 }
 
 fn parse_to_text_inner(source: &str) -> Result<String, ParseError> {
-    let value = parse_value(source)?;
-    let nodes = build::build_formula(&value).map_err(|error| ParseError {
-        message: error.to_string(),
-    })?;
+    let nodes = parse_nodes(source)?;
     let rendered: Vec<String> = nodes.iter().map(|n| n.to_string()).collect();
     Ok(rendered.join(" "))
 }
