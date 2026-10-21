@@ -8,6 +8,7 @@ repository = "https://github.com/asciichem/asciichem-rs"
 
 [dependencies]
 parsanol = "0.18.9"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
 
 [dev-dependencies]
-serde_json = "1.0.154"
