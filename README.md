@@ -40,6 +40,19 @@ chemistry-shaped placer (rings as regular polygons, fused rings
 anchored on shared atoms, chains as 120-degree zigzags) shared with
 the TypeScript implementation.
 
+## Conformance levels
+
+Mapped onto the ecosystem's formal levels — see
+[the levels document](https://www.asciichem.org/guides/conformance-levels/):
+
+| Level | Claim |
+|---|---|
+| L0 notation | **yes** — the parse contract at 100% against the PARG artifact; canonical text round-trip |
+| L1 semantics | **yes** — wire round-trip at 100%, field-for-field with the asciichem-model v1 schemas; the model subset mirrors the reference TransformRules — out-of-subset constructs report `not yet supported`, never guessed |
+| L2 render | **yes** — MathML goldens at 100%; SVG byte-exact with the TypeScript implementation |
+| L3 stereo | not claimed |
+| L4 identity | not claimed |
+
 ## Development
 
 ```sh
