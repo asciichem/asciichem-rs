@@ -1,0 +1,57 @@
+# Release pipeline for asciichem-rs
+#
+# Publishing to crates.io via release-plz: conventional commits drive
+# the version bumps and the changelog on merges to main (see
+# release-plz.toml). Mirrors the chemomer-rs pipeline.
+#
+# FIRST PUBLISH: crates.io trusted publishing cannot bootstrap a
+# brand-new crate — run `cargo publish` once from a maintainer
+# checkout, then register the trusted publisher on the crate's
+# settings page (repository asciichem/asciichem-rs, workflow
+# release.yml). Every later merge to main publishes through this
+# workflow.
+#
+# Credentials: NONE stored. The publish uses crates.io trusted
+# publishing — cargo (≥1.89) running in GitHub Actions with
+# `id-token: write` and no registry token exchanges the job's OIDC
+# token against the registered publisher. release-plz's bookkeeping
+# uses the workflow's own GITHUB_TOKEN.
+
+name: Release
+
+permissions:
+  pull-requests: write
+  contents: write
+  id-token: write
+
+on:
+  push:
+    branches:
+      - main
+
+# Serialize runs: overlapping release-plz invocations race — one
+# publishes while another, reading a pre-merge snapshot, opens a
+# duplicate release PR. Queued runs start from the post-merge state.
+concurrency:
+  group: release-plz
+  cancel-in-progress: false
+
+jobs:
+  release-plz:
+    name: Release-plz
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run release-plz
+        uses: MarcoIeni/release-plz-action@v0.5
+        with:
+          command: release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

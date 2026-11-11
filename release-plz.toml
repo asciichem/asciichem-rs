@@ -1,0 +1,24 @@
+# Release-plz configuration for asciichem-rs
+#
+# Automatic versioning and changelog generation on merges to main.
+# See: https://release-plz.dev/docs/config
+
+[workspace]
+# GitHub releases are created on publish — downstream consumers key
+# off them.
+git_release_enable = true
+
+# Update dependencies with `cargo update`
+dependencies_update = true
+
+[changelog]
+body = """
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | upper_first }}
+{% for commit in commits %}
+- {{ commit.message | upper_first }}\
+{% if commit.breaking %} (BREAKING){% endif %}\
+{% if commit.author != "github-actions[bot]" %} by @{{ commit.author }}{% endif %}\
+{% endfor %}
+{% endfor %}
+"""
