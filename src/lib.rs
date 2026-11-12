@@ -21,14 +21,20 @@
 //! stereo carry-through), gated by the corpus's SMILES, molfile, and
 //! perception families. The identity layer (`identity`) derives
 //! InChI/AuxInfo/InChIKey in-process through the chemomer dependency.
-//! Constructs outside the subset report `Unsupported` rather than
-//! guessing.
+//! The linter ([`crate::linter`]) walks the model and reports
+//! chemistry errors — balance, charge balance, valence, isotope
+//! sanity, element validation, unclosed rings, identifier
+//! format/consistency, and the identity cross-check through the same
+//! in-process engine. Constructs outside the subset report
+//! `Unsupported` rather than guessing.
 
 use std::sync::OnceLock;
 
 pub mod build;
+pub mod identifiers;
 pub mod identity;
 pub mod layout;
+pub mod linter;
 pub mod mathml;
 pub mod model;
 pub mod molfile;
