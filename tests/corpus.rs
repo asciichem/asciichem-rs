@@ -344,3 +344,117 @@ fn perception_contract() {
         failures.join("\n")
     );
 }
+
+// -- molfile interchange (TODO.v2 09, slice 2) --------------------------
+// The corpus's molfile family gates V2000 ingest/emission: parse/reject,
+// atom and bond counts, and — for `molfileRoundTrip` — a parse/write/
+// parse cycle with the same graph (the runner contract's shape
+// equality, sorted edges). Stereo codes 1/6 ride the same gate.
+
+fn edge_shape(edges: &[asciichem::structure::Edge]) -> Vec<(usize, usize, String)> {
+    let mut shape: Vec<(usize, usize, String)> = edges
+        .iter()
+        .map(|edge| {
+            (
+                edge.from.min(edge.to),
+                edge.from.max(edge.to),
+                edge.kind.clone(),
+            )
+        })
+        .collect();
+    shape.sort();
+    shape
+}
+
+#[test]
+fn molfile_ingestion_contract() {
+    let Some(cases) = load_keyed_cases("molfile") else {
+        eprintln!("corpus not cloned as a sibling (or set ASCIICHEM_CORPUS); skipping");
+        return;
+    };
+    assert!(
+        cases.len() >= 6,
+        "expected the molfile family, got {} cases",
+        cases.len()
+    );
+
+    let mut failures = Vec::new();
+    let mut round_trips = 0;
+    for case in &cases {
+        let id = case_id(case);
+        let molfile = case
+            .get("molfile")
+            .and_then(|value| value.as_str())
+            .expect("molfile string");
+        let parses = case
+            .get("parses")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        match asciichem::molfile::parse_molfile(molfile) {
+            Ok(molecule) => {
+                if !parses {
+                    failures.push(format!("{id}: expected reject, parsed"));
+                    continue;
+                }
+                let (atoms, edges) = asciichem::structure::build_graph(&molecule);
+                for (actual, expected, label) in [
+                    (
+                        atoms.len(),
+                        case.get("atoms").and_then(|v| v.as_u64()),
+                        "atoms",
+                    ),
+                    (
+                        edges.len(),
+                        case.get("bonds").and_then(|v| v.as_u64()),
+                        "bonds",
+                    ),
+                ] {
+                    match expected {
+                        Some(expected) if actual as u64 == expected => {}
+                        _ => failures.push(format!(
+                            "{id}: {label} count mismatch (expected {expected:?}, got {actual})"
+                        )),
+                    }
+                }
+                let round_trip = case
+                    .get("molfileRoundTrip")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false);
+                if round_trip {
+                    let shape = edge_shape(&edges);
+                    match asciichem::molfile::write_molfile(&molecule, "") {
+                        Ok(written) => {
+                            let (again_atoms, again_edges) = asciichem::structure::build_graph(
+                                &asciichem::molfile::parse_molfile(&written).unwrap_or_else(
+                                    |error| panic!("{id}: re-parse failed: {error}"),
+                                ),
+                            );
+                            if again_atoms.len() != atoms.len() || edge_shape(&again_edges) != shape
+                            {
+                                failures
+                                    .push(format!("{id}: molfile round-trip changed the graph"));
+                            }
+                            round_trips += 1;
+                        }
+                        Err(error) => failures.push(format!("{id}: write failed: {error}")),
+                    }
+                }
+            }
+            Err(error) => {
+                if parses {
+                    failures.push(format!("{id}: expected parse, rejected: {error}"));
+                }
+            }
+        }
+    }
+    assert!(
+        round_trips > 0,
+        "expected molfile round-trip passes; got none"
+    );
+    assert!(
+        failures.is_empty(),
+        "{} molfile mismatch(es):\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
