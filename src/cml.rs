@@ -1046,6 +1046,9 @@ pub fn parse_cml(xml: &str) -> Result<Vec<Node>, CmlError> {
         }
     }
 
+    // Ascending position order, like the reference restore: earlier
+    // inserts never shift the later positions.
+    top_level.sort_by_key(|entry| entry.position);
     for entry in top_level {
         let position = entry.position.min(nodes.len());
         nodes.insert(position, entry.node);
