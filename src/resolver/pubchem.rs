@@ -55,6 +55,7 @@ impl Adapter for PubChem {
         value: &str,
         convention: &str,
         fetch: &dyn Fetch,
+        now: Option<&str>,
     ) -> Result<Option<Substance>, ResolverError> {
         let url = url_for(value, convention)?;
         let Some(body) = fetch.get(&url, &[])? else {
@@ -70,7 +71,7 @@ impl Adapter for PubChem {
         let Some(properties) = properties else {
             return Ok(None);
         };
-        Ok(substance_from(self, properties))
+        Ok(substance_from(self, properties, now))
     }
 }
 
@@ -117,8 +118,12 @@ fn json_scalar_f64(value: Option<&serde_json::Value>) -> Option<f64> {
     }
 }
 
-fn substance_from(adapter: &PubChem, properties: &serde_json::Value) -> Option<Substance> {
-    let provenance = adapter.default_provenance();
+fn substance_from(
+    adapter: &PubChem,
+    properties: &serde_json::Value,
+    now: Option<&str>,
+) -> Option<Substance> {
+    let provenance = adapter.default_provenance(now);
     let mut identifiers = Vec::new();
     if let Some(cid) = json_scalar(properties.get("CID")) {
         identifiers.push(Identifier {
@@ -228,6 +233,7 @@ mod tests {
                 },
                 &temp_cache("pubchem"),
                 false,
+                None,
             )
             .expect("resolves")
             .expect("answers");
@@ -256,6 +262,7 @@ mod tests {
                 },
                 &temp_cache("pubchem-prov"),
                 false,
+                None,
             )
             .expect("resolves")
             .expect("answers");
@@ -287,6 +294,7 @@ mod tests {
                 },
                 &temp_cache("pubchem-struct"),
                 false,
+                None,
             )
             .expect("resolves")
             .expect("answers");
@@ -306,6 +314,7 @@ mod tests {
                 &RecordedFetch { body: Some(stereo) },
                 &temp_cache("pubchem-stereo"),
                 false,
+                None,
             )
             .expect("resolves")
             .expect("answers");
@@ -335,6 +344,7 @@ mod tests {
                 },
                 &temp_cache("pubchem-wild"),
                 false,
+                None,
             )
             .expect("resolves")
             .expect("answers");
@@ -355,6 +365,7 @@ mod tests {
                 &RecordedFetch { body: None },
                 &temp_cache("pubchem-miss"),
                 false,
+                None,
             )
             .expect("not-found is not an error");
         assert_eq!(resolved, None);
@@ -371,6 +382,7 @@ mod tests {
                 &capture,
                 &temp_cache("pubchem-url"),
                 false,
+                None,
             )
             .expect("not-found is not an error");
         let url = capture.calls().pop().expect("requested").url;

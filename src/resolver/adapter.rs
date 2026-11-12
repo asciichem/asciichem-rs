@@ -113,21 +113,25 @@ pub trait Adapter {
     /// The record this source answers for (value, convention), or
     /// `Ok(None)` when it does not know the substance — not-found is
     /// nil, not an error, because sources legitimately answer unknown
-    /// during multi-source resolution.
+    /// during multi-source resolution. `now` is the injectable clock
+    /// the record's provenance stamps (the replay seam).
     fn fetch_record(
         &self,
         value: &str,
         convention: &str,
         fetch: &dyn Fetch,
+        now: Option<&str>,
     ) -> Result<Option<Substance>, ResolverError>;
 
     /// The provenance stamped on identifiers that arrive without one
     /// (the extension seam's backstop; the shipped sources stamp at
-    /// construction already).
-    fn default_provenance(&self) -> Provenance {
+    /// construction already). `now` is the injectable clock — the
+    /// retrieval time in wire form; `None` reads the system clock (the
+    /// live path; replayed fixtures pin the instant).
+    fn default_provenance(&self, now: Option<&str>) -> Provenance {
         Provenance {
             source: self.source_name().to_string(),
-            retrieved_at: Some(timestamp::now_utc()),
+            retrieved_at: Some(now.map(str::to_string).unwrap_or_else(timestamp::now_utc)),
             source_version: None,
             attribution: self.attribution(),
         }
@@ -136,7 +140,7 @@ pub trait Adapter {
     /// Cache-aware resolution around [`Adapter::fetch_record`]:
     /// serve from the TTL cache unless `refresh`, cache the answer
     /// when there is one, and stamp identifiers that arrived without
-    /// provenance.
+    /// provenance. `now` rides [`Adapter::default_provenance`].
     fn resolve(
         &self,
         value: &str,
@@ -144,6 +148,7 @@ pub trait Adapter {
         fetch: &dyn Fetch,
         cache: &Cache,
         refresh: bool,
+        now: Option<&str>,
     ) -> Result<Option<Substance>, ResolverError> {
         let key = cache.key_for(self.source_name(), convention, value);
         if !refresh {
@@ -151,9 +156,9 @@ pub trait Adapter {
                 return Ok(Some(cached));
             }
         }
-        let mut substance = self.fetch_record(value, convention, fetch)?;
+        let mut substance = self.fetch_record(value, convention, fetch, now)?;
         if let Some(substance) = substance.as_mut() {
-            let default_provenance = self.default_provenance();
+            let default_provenance = self.default_provenance(now);
             for identifier in &mut substance.identifiers {
                 if identifier.provenance.is_none() {
                     identifier.provenance = Some(default_provenance.clone());
