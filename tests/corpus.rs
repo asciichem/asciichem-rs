@@ -1316,6 +1316,77 @@ fn run_cli(argv: &[&str]) -> CapturedCli {
     }
 }
 
+/// Runs one cli case and records any mismatch into `failures` — the
+/// shared matcher both the runner contract and the pending-gate test
+/// use (exit, then the stdout matchers, then stderr fragments).
+fn run_cli_case(case: &serde_json::Value, id: &str, failures: &mut Vec<String>) {
+    let invocation: Vec<String> = case
+        .get("invocation")
+        .and_then(serde_json::Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .expect("cli case invocation");
+    let expected_exit = case
+        .get("exit")
+        .and_then(serde_json::Value::as_i64)
+        .expect("cli case exit code");
+    let result = run_cli(&invocation.iter().map(String::as_str).collect::<Vec<_>>());
+    let detail = format!(
+        "exit {} (stdout: {:?}, stderr: {:?})",
+        result.code,
+        result.stdout.chars().take(120).collect::<String>(),
+        result.stderr.chars().take(120).collect::<String>(),
+    );
+    if result.code as i64 != expected_exit {
+        failures.push(format!("{id}: expected exit {expected_exit}; {detail}"));
+        return;
+    }
+    if let Some(stdout) = case.get("stdout").and_then(serde_json::Value::as_str) {
+        let expected = stdout.replace("{version}", env!("CARGO_PKG_VERSION"));
+        if result.stdout != expected {
+            failures.push(format!("{id}: stdout {:?} != {expected:?}", result.stdout));
+        }
+    } else if let Some(fragments) = case.get("stdoutIncludes") {
+        for fragment in fragments.as_array().expect("stdoutIncludes list") {
+            let fragment = fragment.as_str().expect("stdoutIncludes fragment");
+            if !result.stdout.contains(fragment) {
+                failures.push(format!(
+                    "{id}: stdout {:?} does not include {fragment:?}",
+                    result.stdout
+                ));
+            }
+        }
+    } else if let Some(expected) = case.get("stdoutJson") {
+        let actual: serde_json::Value = match serde_json::from_str(&result.stdout) {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                failures.push(format!(
+                    "{id}: stdout is not JSON ({error}): {:?}",
+                    result.stdout
+                ));
+                return;
+            }
+        };
+        if actual != *expected {
+            failures.push(format!(
+                "{id}: stdout JSON mismatch\n  expected: {expected}\n  got: {actual}"
+            ));
+        }
+    }
+    for fragment in string_list(case, "stderrIncludes") {
+        if !result.stderr.contains(&fragment) {
+            failures.push(format!(
+                "{id}: stderr {:?} does not include {fragment:?}",
+                result.stderr
+            ));
+        }
+    }
+}
+
 #[test]
 fn cli_contract() {
     let Some(cases) = load_family("cli.json") else {
@@ -1342,71 +1413,7 @@ fn cli_contract() {
             continue;
         }
         ran += 1;
-        let invocation: Vec<String> = case
-            .get("invocation")
-            .and_then(serde_json::Value::as_array)
-            .map(|list| {
-                list.iter()
-                    .filter_map(serde_json::Value::as_str)
-                    .map(str::to_string)
-                    .collect()
-            })
-            .expect("cli case invocation");
-        let expected_exit = case
-            .get("exit")
-            .and_then(serde_json::Value::as_i64)
-            .expect("cli case exit code");
-        let result = run_cli(&invocation.iter().map(String::as_str).collect::<Vec<_>>());
-        let detail = format!(
-            "exit {} (stdout: {:?}, stderr: {:?})",
-            result.code,
-            result.stdout.chars().take(120).collect::<String>(),
-            result.stderr.chars().take(120).collect::<String>(),
-        );
-        if result.code as i64 != expected_exit {
-            failures.push(format!("{id}: expected exit {expected_exit}; {detail}"));
-            continue;
-        }
-        if let Some(stdout) = case.get("stdout").and_then(serde_json::Value::as_str) {
-            let expected = stdout.replace("{version}", env!("CARGO_PKG_VERSION"));
-            if result.stdout != expected {
-                failures.push(format!("{id}: stdout {:?} != {expected:?}", result.stdout));
-            }
-        } else if let Some(fragments) = case.get("stdoutIncludes") {
-            for fragment in fragments.as_array().expect("stdoutIncludes list") {
-                let fragment = fragment.as_str().expect("stdoutIncludes fragment");
-                if !result.stdout.contains(fragment) {
-                    failures.push(format!(
-                        "{id}: stdout {:?} does not include {fragment:?}",
-                        result.stdout
-                    ));
-                }
-            }
-        } else if let Some(expected) = case.get("stdoutJson") {
-            let actual: serde_json::Value = match serde_json::from_str(&result.stdout) {
-                Ok(parsed) => parsed,
-                Err(error) => {
-                    failures.push(format!(
-                        "{id}: stdout is not JSON ({error}): {:?}",
-                        result.stdout
-                    ));
-                    continue;
-                }
-            };
-            if actual != *expected {
-                failures.push(format!(
-                    "{id}: stdout JSON mismatch\n  expected: {expected}\n  got: {actual}"
-                ));
-            }
-        }
-        for fragment in string_list(case, "stderrIncludes") {
-            if !result.stderr.contains(&fragment) {
-                failures.push(format!(
-                    "{id}: stderr {:?} does not include {fragment:?}",
-                    result.stderr
-                ));
-            }
-        }
+        run_cli_case(case, &id, &mut failures);
     }
     eprintln!(
         "cli: {ran} run, {} skipped (pending: {skipped:?})",
@@ -1444,5 +1451,47 @@ fn reports_the_pending_cli_cases() {
         ],
         "the pending list changed — either the port grew the capability \
          (run the cases) or the corpus re-marked them"
+    );
+}
+
+#[test]
+fn pending_cli_cases_match_their_expectations_locally() {
+    // The corpus still marks the three finished cases `pending:
+    // [asciichem-rs]` — the fixture annotation retires through a
+    // corpus PR (fixtures are never edited from an implementation
+    // side), so [`cli_contract`] keeps skipping them. This gate runs
+    // those cases against their own fixture matchers anyway, so the
+    // capability is proven in CI now; when the corpus re-marks them,
+    // the shared runner takes over and this test retires with the
+    // corpus-pin bump.
+    let Some(cases) = load_family("cli.json") else {
+        eprintln!("corpus not cloned as a sibling (or set ASCIICHEM_CORPUS); skipping");
+        return;
+    };
+    const GATED: [&str; 3] = [
+        "cli/convert-html",
+        "cli/convert-latex",
+        "cli/lint-json-crystal",
+    ];
+    let mut failures = Vec::new();
+    let mut ran = 0;
+    for case in &cases {
+        let id = case_id(case);
+        if GATED.contains(&id.as_str()) {
+            ran += 1;
+            run_cli_case(case, &id, &mut failures);
+        }
+    }
+    eprintln!("cli pending-gate: {ran} run");
+    assert_eq!(
+        ran,
+        GATED.len(),
+        "the gated cases are missing from the fixture"
+    );
+    assert!(
+        failures.is_empty(),
+        "{} gated cli mismatch(es):\n{}",
+        failures.len(),
+        failures.join("\n")
     );
 }
