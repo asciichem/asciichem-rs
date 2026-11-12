@@ -15,13 +15,14 @@
 //! renderer on the model, the MathML renderer (`mathml`) byte-exact
 //! against the corpus goldens, and the canonical wire JSON (`wire`)
 //! field-for-field with the shared v1 schemas. The structure
-//! interchange layer (`structure`, `smiles`, `perception`) ingests and
-//! emits SMILES with the shared perception semantics (implicit
-//! hydrogens, Hückel aromatic rings, stereo carry-through), gated by
-//! the corpus's SMILES and perception families. The identity layer
-//! (`identity`) derives InChI/AuxInfo/InChIKey in-process through the
-//! chemomer dependency. Constructs outside the subset report
-//! `Unsupported` rather than guessing.
+//! interchange layer (`structure`, `smiles`, `molfile`, `perception`)
+//! ingests and emits SMILES and molfile V2000 with the shared
+//! perception semantics (implicit hydrogens, Hückel aromatic rings,
+//! stereo carry-through), gated by the corpus's SMILES, molfile, and
+//! perception families. The identity layer (`identity`) derives
+//! InChI/AuxInfo/InChIKey in-process through the chemomer dependency.
+//! Constructs outside the subset report `Unsupported` rather than
+//! guessing.
 
 use std::sync::OnceLock;
 
@@ -30,6 +31,7 @@ pub mod identity;
 pub mod layout;
 pub mod mathml;
 pub mod model;
+pub mod molfile;
 pub mod perception;
 pub mod smiles;
 pub mod structure;

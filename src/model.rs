@@ -26,6 +26,12 @@ pub struct Atom {
     /// invented.
     pub hydrogens: Option<u32>,
     pub chirality: Option<String>,
+    /// Authored 2D/3D coordinates (molfile atom block). Model-only
+    /// render data — the canonical wire form carries none; structure
+    /// writers use them when present and lay out otherwise.
+    pub x2: Option<f64>,
+    pub y2: Option<f64>,
+    pub z2: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

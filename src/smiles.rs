@@ -15,7 +15,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::model::{Atom, Molecule, Node};
 use crate::perception::{aromatic_rings, hydrogen_valence_sum, implicit_hydrogens};
-use crate::structure::{build_graph, linearize, Edge};
+use crate::structure::{build_graph_strict, linearize, Edge};
 use crate::ParseError;
 
 const ORGANIC: [&str; 10] = ["Cl", "Br", "B", "C", "N", "O", "P", "S", "F", "I"];
@@ -552,7 +552,7 @@ pub fn write_smiles(nodes: &[Node]) -> Result<String> {
 }
 
 fn write_molecule(molecule: &Molecule) -> Result<String> {
-    let (atoms, edges) = build_graph(molecule);
+    let (atoms, edges) = build_graph_strict(molecule)?;
     // A single-atom component is valid SMILES; multiple unbonded atoms
     // are a formula, not a structure.
     if edges.is_empty() && atoms.len() > 1 {
