@@ -18,8 +18,10 @@
 //! interchange layer (`structure`, `smiles`, `perception`) ingests and
 //! emits SMILES with the shared perception semantics (implicit
 //! hydrogens, Hückel aromatic rings, stereo carry-through), gated by
-//! the corpus's SMILES and perception families. Constructs outside the
-//! subset report `Unsupported` rather than guessing.
+//! the corpus's SMILES and perception families. The identity layer
+//! (`identity`) derives InChI/AuxInfo/InChIKey in-process through the
+//! chemomer dependency. Constructs outside the subset report
+//! `Unsupported` rather than guessing.
 
 use std::sync::OnceLock;
 

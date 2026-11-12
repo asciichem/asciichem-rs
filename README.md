@@ -46,6 +46,17 @@ chemistry-shaped placer (rings as regular polygons, fused rings
 anchored on shared atoms, chains as 120-degree zigzags) shared with
 the TypeScript implementation.
 
+Identity is derived IN-PROCESS through the
+[chemomer](https://github.com/chemomer/chemomer) crate — the native
+Rust InChI engine, byte-exact against the IUPAC oracle, consumed here
+as a version-pinned dependency with no FFI seam (the Ruby gem reaches
+the same engine through its C ABI, TS/PY through wasm/PyO3).
+`identity::derive` pipes the model through a V2000 molfile to the
+engine; `identity::derive_from_molfile` is the raw seam (molfile in →
+InChI, AuxInfo, InChIKey out). CI gates the oracle corpus's full
+recorded identity family (chemomer/inchi-tests, pinned tag) byte-exact
+through the dependency.
+
 ## Conformance levels
 
 Mapped onto the ecosystem's formal levels — see
@@ -57,10 +68,20 @@ Mapped onto the ecosystem's formal levels — see
 | L1 semantics | **yes** — wire round-trip at 100%, field-for-field with the asciichem-model v1 schemas; the model subset mirrors the reference TransformRules — out-of-subset constructs report `not yet supported`, never guessed |
 | L2 render | **yes** — MathML goldens at 100%; SVG byte-exact with the TypeScript implementation |
 | L3 stereo | **yes** — tetrahedral chirality (`@`/`@@` → TH1/TH2), directional bonds (`/`/`\`), wedge/hash depiction; Hückel aromaticity + implicit-hydrogen perception with the declines; parity-correct canonical SMILES. The molfile stereo-code gate lands with the molfile interchange slice (TODO.v2/17 phase 1, slice 2) |
-| L4 identity | not claimed |
+| L4 identity | **partial** — InChI/AuxInfo/InChIKey derived in-process through the chemomer dependency, byte-exact against the recorded oracle identity family; identifier cross-validation and citation-grade resolution are not yet ported |
 
 ## Development
 
 ```sh
 cargo test
+```
+
+The identity oracle gate needs the chemomer corpus (skipped when
+absent): clone [chemomer/inchi-tests](https://github.com/chemomer/inchi-tests)
+at the pin as a sibling (`../inchi-tests`) or point `CHEMOMER_CORPUS`
+at its `corpus/fixtures`, and run it in release profile — canonical
+ranking is debug-bound:
+
+```sh
+CHEMOMER_CORPUS=../inchi-tests/corpus/fixtures cargo test --release --test identity_corpus
 ```
