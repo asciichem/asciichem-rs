@@ -14,6 +14,11 @@ env:
   # chemomer's own CI gates the engine at; the identity family must
   # never drift from the engine it consumes.
   CHEMOMER_CORPUS_REF: v0.3.41
+  # The XML engine behind the CML round-trip (the leptris family
+  # directive: parse and serialize the CML wire through libleptris,
+  # never quick-xml, never hand-rolled strings). Pinned tag; the
+  # `leptris` crate links it via LEPTRIS_LIB_PATH at build time.
+  LEPTRIS_REF: v1.9.399
 
 jobs:
   test:
@@ -34,6 +39,36 @@ jobs:
           repository: chemomer/inchi-tests
           ref: ${{ env.CHEMOMER_CORPUS_REF }}
           path: .inchi-tests
+      # Bootstrap libleptris: the same CMake shared-library build
+      # leptris-rs's own CI runs (utf8proc on, CLI/benchmarks/tests
+      # off). The built .so feeds LEPTRIS_LIB_PATH for the compile and
+      # LD_LIBRARY_PATH for the test binaries (a dependency's -rpath
+      # link-arg does not reach this crate's binaries).
+      - name: Install utf8proc (libleptris dependency)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libutf8proc-dev
+      - name: Checkout and build libleptris (pinned)
+        run: |
+          git clone --depth 1 --branch "$LEPTRIS_REF" \
+            https://github.com/leptris/leptris .leptris-engine
+          cmake -B .leptris-engine/build-shared -S .leptris-engine \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLEPTRIS_BUILD_SHARED=ON -DLEPTRIS_BUILD_STATIC=OFF \
+            -DBUILD_TESTING=OFF -DLEPTRIS_BUILD_CLI=OFF \
+            -DLEPTRIS_BUILD_BENCHMARKS=OFF \
+            -DLEPTRIS_ENABLE_UTF8PROC=ON
+          cmake --build .leptris-engine/build-shared --config Release -j
+          LIB=$(find .leptris-engine/build-shared -type f -o -type l 2>/dev/null \
+            | grep -iE '(lib)?leptris\.(dylib|so)$' | head -1)
+          if [ -z "$LIB" ]; then
+            echo "ERROR: libleptris shared library not found"
+            exit 1
+          fi
+          LIBDIR=$(cd "$(dirname "$LIB")" && pwd)
+          echo "LEPTRIS_LIB_PATH=$LIBDIR" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$LIBDIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+          echo "Built: $LIB"
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt

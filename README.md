@@ -40,8 +40,15 @@ passes the corpus's molfile family — parse/reject, atom/bond counts,
 graph-stable round trips, and the stereo-code gate (codes 1/6 →
 wedge/hash; chirality crosses as a wedge on the stereocentre's first
 bond) — with deterministic re-emission (the written form is a byte
-fixed point). Deeply nested input runs on a
-dedicated large-stack thread.
+fixed point). The CML round-trip (`cml::to_cml`/`cml::parse_cml`)
+passes the corpus's cml family through the three-way contract
+(parse → CML → parse → canonical text) with the aci: extension
+channels — atom attributes (oxidation state, Lewis markers, ring
+closures), top-level elements (electron configuration, embedded math,
+quoted text), and molecule groups — with every byte of XML parsing
+and serialization performed by the linked
+[leptris](https://github.com/leptris/leptris) engine. Deeply nested
+input runs on a dedicated large-stack thread.
 
 The semantic model subset (atoms, bonds, groups, molecules with
 annotations, reactions with conditions, cascades, quoted text,
@@ -80,6 +87,22 @@ Mapped onto the ecosystem's formal levels — see
 
 ```sh
 cargo test
+```
+
+The CML round-trip links [libleptris](https://github.com/leptris/leptris)
+(the XML engine; the same build leptris-rs's CI runs). Build it once
+and point the crate at it:
+
+```sh
+cmake -B /path/to/leptris/build-shared -S /path/to/leptris \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DLEPTRIS_BUILD_SHARED=ON -DLEPTRIS_BUILD_STATIC=OFF \
+  -DBUILD_TESTING=OFF -DLEPTRIS_BUILD_CLI=OFF \
+  -DLEPTRIS_BUILD_BENCHMARKS=OFF -DLEPTRIS_ENABLE_UTF8PROC=ON
+cmake --build /path/to/leptris/build-shared -j
+LEPTRIS_LIB_PATH=/path/to/leptris/build-shared/src \
+LD_LIBRARY_PATH=/path/to/leptris/build-shared/src \
+  cargo test
 ```
 
 The identity oracle gate needs the chemomer corpus (skipped when
