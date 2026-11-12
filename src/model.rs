@@ -3,7 +3,29 @@
 //! reference Text formatter rule for rule; round-trip is the
 //! contract.
 
+use std::collections::BTreeMap;
 use std::fmt;
+
+/// The reference's `String#to_i` for the model's numeric fields:
+/// optional sign, leading digits, 0 when none (`"2"` → 2, `"-2"` →
+/// -2, `"2a"` → 2, `"a"` → 0). Single parse for every consumer so a
+/// count field never gets re-parsed per caller.
+pub(crate) fn leading_integer(value: &str) -> i64 {
+    let trimmed = value.trim_start();
+    let (sign, start) = match trimmed.as_bytes().first() {
+        Some(b'+') => (1i64, 1),
+        Some(b'-') => (-1i64, 1),
+        _ => (1i64, 0),
+    };
+    let digits: String = trimmed[start..]
+        .chars()
+        .take_while(|digit| digit.is_ascii_digit())
+        .collect();
+    if digits.is_empty() {
+        return 0;
+    }
+    sign * digits.parse::<i64>().unwrap_or(0)
+}
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Atom {
@@ -105,6 +127,101 @@ impl Molecule {
     pub fn stereo_letter(&self) -> Option<&str> {
         self.stereo.as_deref()
     }
+
+    /// The integer stoichiometric coefficient: the authored leading
+    /// number, or 1 when absent or not positive. Single source for
+    /// every consumer (reaction stoichiometry, the balance check,
+    /// composition) — coefficients are model data, not per-caller
+    /// parsing.
+    pub fn stoichiometric_coefficient(&self) -> usize {
+        match self.coefficient.as_deref().map(leading_integer) {
+            Some(count) if count > 0 => count as usize,
+            _ => 1,
+        }
+    }
+
+    /// Element symbol => total atom count, recursing through groups
+    /// and nested molecules with subscripts and multiplicities
+    /// applied. Pass `with_coefficient: false` for the composition of
+    /// a single molecule instance — identifiers describe the
+    /// substance, not the stoichiometric multiplier.
+    pub fn element_counts(&self, with_coefficient: bool) -> BTreeMap<String, usize> {
+        let multiplier = if with_coefficient {
+            self.stoichiometric_coefficient()
+        } else {
+            1
+        };
+        let mut tally = BTreeMap::new();
+        for node in &self.nodes {
+            tally_element(node, multiplier, &mut tally);
+        }
+        tally
+    }
+
+    /// Hill-system canonical formula: C first, then H, then others
+    /// alphabetically. Single source of truth for "what is the
+    /// canonical formula string of this molecule"
+    /// (`H_2SO_4` → `"H2O4S"` — no carbon, alpha sort).
+    pub fn hill_formula(&self) -> String {
+        let counts = self.element_counts(true);
+        let mut ordered: Vec<&String> = Vec::with_capacity(counts.len());
+        // Hill order: C first, H second, the rest alphabetical (the
+        // BTreeMap iteration).
+        if let Some((key, _)) = counts.get_key_value("C") {
+            ordered.push(key);
+        }
+        if let Some((key, _)) = counts.get_key_value("H") {
+            ordered.push(key);
+        }
+        ordered.extend(
+            counts
+                .keys()
+                .filter(|element| element.as_str() != "C" && element.as_str() != "H"),
+        );
+        ordered
+            .iter()
+            .map(|element| {
+                let count = counts[*element];
+                if count == 1 {
+                    (*element).clone()
+                } else {
+                    format!("{element}{count}")
+                }
+            })
+            .collect()
+    }
+}
+
+fn tally_element(node: &Node, multiplier: usize, tally: &mut BTreeMap<String, usize>) {
+    match node {
+        Node::Atom(atom) => {
+            let sub = atom
+                .subscript
+                .as_deref()
+                .map(leading_integer)
+                .filter(|&count| count > 0)
+                .unwrap_or(1) as usize;
+            *tally.entry(atom.element.clone()).or_insert(0) += sub * multiplier;
+        }
+        Node::Group(group) => {
+            let inner = group
+                .multiplicity
+                .as_deref()
+                .map(leading_integer)
+                .filter(|&count| count > 0)
+                .unwrap_or(1) as usize;
+            for child in &group.nodes {
+                tally_element(child, multiplier * inner, tally);
+            }
+        }
+        Node::Molecule(molecule) => {
+            let inner = molecule.stoichiometric_coefficient();
+            for child in &molecule.nodes {
+                tally_element(child, multiplier * inner, tally);
+            }
+        }
+        _ => {}
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -129,6 +246,12 @@ impl Reaction {
             "resonance" => "<->",
             _ => "->",
         }
+    }
+
+    /// Human-readable label for linter diagnostics (cascade steps are
+    /// bare `Reaction`s, so they carry the label too).
+    pub fn diagnostic_label(&self) -> String {
+        "Reaction".to_string()
     }
 
     fn render_arrow(&self) -> String {
@@ -200,6 +323,56 @@ pub enum Node {
     Mechanism(Mechanism),
     EmbeddedMath(String),
     Text(String),
+}
+
+impl Molecule {
+    /// Human-readable label for linter diagnostics — the Hill formula
+    /// when present, "Molecule" otherwise.
+    pub fn diagnostic_label(&self) -> String {
+        let formula = self.hill_formula();
+        if formula.is_empty() {
+            "Molecule".to_string()
+        } else {
+            formula
+        }
+    }
+}
+
+impl Atom {
+    /// Human-readable label for linter diagnostics ("Atom(C)").
+    pub fn diagnostic_label(&self) -> String {
+        format!("Atom({})", self.element)
+    }
+}
+
+impl Group {
+    /// Human-readable label for linter diagnostics ("Group").
+    pub fn diagnostic_label(&self) -> String {
+        "Group".to_string()
+    }
+}
+
+impl Node {
+    /// Human-readable label for linter diagnostics — the Rust mirror
+    /// of `Model::Node#diagnostic_label` (the default snake-case name
+    /// with words separated; `Atom` identifies itself by element,
+    /// `Mechanism` by step count).
+    pub fn diagnostic_label(&self) -> String {
+        match self {
+            Node::Atom(atom) => format!("Atom({})", atom.element),
+            Node::Bond(_) => "Bond".to_string(),
+            Node::Group(_) => "Group".to_string(),
+            Node::Molecule(_) => "Molecule".to_string(),
+            Node::Reaction(reaction) => reaction.diagnostic_label(),
+            Node::ReactionCascade(_) => "Reaction Cascade".to_string(),
+            Node::ElectronConfiguration(_) => "Electron Configuration".to_string(),
+            Node::Mechanism(mechanism) => {
+                format!("Mechanism({} steps)", mechanism.steps.len())
+            }
+            Node::EmbeddedMath(_) => "Embedded Math".to_string(),
+            Node::Text(_) => "Text".to_string(),
+        }
+    }
 }
 
 fn render_terms(nodes: &[Node]) -> String {

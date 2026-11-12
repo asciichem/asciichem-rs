@@ -76,6 +76,21 @@ pub fn hydrogen_valence_sum(atom_index: usize, edges: &[Edge]) -> f64 {
     sum
 }
 
+/// Sum of explicit bond orders at an atom (wedge/hash/dative/wavy
+/// bonds order as single; aromatic orders as 1 — Hückel alternation is
+/// a ring-perception concern, not a bond-order sum concern). The
+/// valence-feasibility sum: the linter's max-valence check consumes it.
+pub fn bond_order_sum(atom_index: usize, edges: &[Edge]) -> f64 {
+    let mut sum = 0.0;
+    for edge in edges {
+        if edge.from != atom_index && edge.to != atom_index {
+            continue;
+        }
+        sum += bond_order(&edge.kind);
+    }
+    sum
+}
+
 /// Whole-number, non-negative gaps between each default valence and
 /// the hydrogen-valence sum; empty when the element is unknown or no
 /// valence fits integrally.
