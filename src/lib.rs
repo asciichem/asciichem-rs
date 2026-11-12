@@ -37,11 +37,16 @@
 //! canonical CML wire with the aci: extension channels (atom
 //! attributes, top-level elements, molecule groups), parsed and
 //! serialized entirely by the linked leptris engine.
+//! The citation layer ([`crate::citation`]) turns a resolved substance
+//! ([`crate::resolver::Substance`]) into the dataset-type Relaton
+//! bibitem XML — one per (substance, source), built and serialized
+//! through the leptris engine, byte-exact with the Ruby emission.
 
 use std::sync::OnceLock;
 
 pub mod build;
 pub mod cml;
+pub mod citation;
 pub mod identifiers;
 pub mod identity;
 pub mod layout;
