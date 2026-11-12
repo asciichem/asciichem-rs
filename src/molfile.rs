@@ -417,6 +417,19 @@ const CHIRALITY_PARITY: [(&str, i64); 2] = [("TH1", 1), ("TH2", 2)];
 /// positions map by index). Charges and isotopes are emitted as
 /// `M  CHG` / `M  ISO` property lines.
 pub fn write_molfile(molecule: &Molecule, name: &str) -> Result<String> {
+    write_molfile_with(molecule, name, true)
+}
+
+/// Emits a V2000 molfile with all coordinates at the origin — the
+/// Ruby identity seam's `layout: false` call. Geometry must never
+/// invent stereochemistry a downstream perceiver (InChI) would read:
+/// the coordinates field is deliberately empty, stereo crossing only
+/// through the wedge/hash codes.
+pub fn write_molfile_unlaid(molecule: &Molecule, name: &str) -> Result<String> {
+    write_molfile_with(molecule, name, false)
+}
+
+fn write_molfile_with(molecule: &Molecule, name: &str, layout: bool) -> Result<String> {
     let (atoms, edges) = build_graph_strict(molecule)?;
     if edges.is_empty() && atoms.len() > 1 {
         return Err(ParseError {
@@ -427,8 +440,10 @@ pub fn write_molfile(molecule: &Molecule, name: &str) -> Result<String> {
     // Layout fallback for atoms without authored coordinates. Only
     // trusted when the layout walk saw the same atoms the graph walk
     // did; otherwise unbonded coordinates stay at the origin.
-    let layout_positions = layout::layout_molecule(molecule).1;
-    let layout_aligned = layout_positions.len() == atoms.len();
+    let layout_positions = layout.then(|| layout::layout_molecule(molecule).1);
+    let layout_aligned = layout_positions
+        .as_ref()
+        .is_some_and(|positions| positions.len() == atoms.len());
 
     let mut out = String::new();
     out.push_str(name);
@@ -443,9 +458,24 @@ pub fn write_molfile(molecule: &Molecule, name: &str) -> Result<String> {
     out.push('\n');
 
     for (index, atom) in atoms.iter().enumerate() {
-        let fallback = layout_aligned.then(|| layout_positions[index]);
-        let x = atom.x2.or(fallback.map(|p| p.x)).unwrap_or(0.0);
-        let y = atom.y2.or(fallback.map(|p| p.y)).unwrap_or(0.0);
+        // Laid: authored coordinates win, the deterministic layout
+        // covers the rest. Unlaid: the coordinate pair stays at the
+        // origin (the Ruby `layout: false` seam behaviour); z passes
+        // through in both.
+        let placed = layout_positions
+            .as_ref()
+            .filter(|_| layout_aligned)
+            .and_then(|positions| positions.get(index));
+        let x = if layout {
+            atom.x2.or(placed.map(|p| p.x)).unwrap_or(0.0)
+        } else {
+            0.0
+        };
+        let y = if layout {
+            atom.y2.or(placed.map(|p| p.y)).unwrap_or(0.0)
+        } else {
+            0.0
+        };
         let z = atom.z2.unwrap_or(0.0);
         let parity = CHIRALITY_PARITY
             .iter()

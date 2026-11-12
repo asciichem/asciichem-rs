@@ -11,15 +11,14 @@
 //! Semantics mirror the Ruby `NativeEngine` contract: a structure goes
 //! in as a V2000 molfile, the identity comes out as the standard
 //! InChI string, its AuxInfo line, and the InChIKey. The model →
-//! molfile emission is the pipe; the writer here is PRIVATE to the
-//! identity path and minimal (V2000, no coordinates — InChI never
-//! reads them). The full molfile interchange (read/write as a public
-//! format) is TODO.v2/09's slice 2, which replaces this writer. The
-//! graph build is the shared strict [`crate::structure`] walk — no
-//! second walker.
+//! molfile emission is the pipe; it rides the public interchange
+//! writer ([`crate::molfile::write_molfile_unlaid`] — V2000, zero
+//! coordinates: InChI never reads them, and geometry must never
+//! invent stereo). The graph build is the shared strict
+//! [`crate::structure`] walk — no second walker.
 
 use crate::model;
-use crate::structure::{self, Edge};
+use crate::molfile::write_molfile_unlaid;
 
 /// The derived identity of a structure: the standard InChI string,
 /// its AuxInfo line, and the InChIKey.
@@ -49,208 +48,18 @@ pub fn derive_from_molfile(molfile: &str) -> chemomer::Result<Identity> {
 /// engine. The molfile emission is the pipe, exactly as the Ruby
 /// `NativeEngine#identity` (`Molfile.write(molecule, layout: false)`).
 /// The identity pipe speaks one error type (the Ruby engine's single
-/// `AsciiChem::Error` shape), so the strict build's rejection maps
-/// onto it.
+/// `AsciiChem::Error` shape), so the writer's rejections map onto it.
 pub fn derive(molecule: &model::Molecule) -> chemomer::Result<Identity> {
-    derive_from_molfile(&write_v2000(molecule)?)
-}
-
-/// The model's number-then-sign charge ("2+", "-") → signed integer —
-/// the Ruby `charge_value`.
-fn charge_value(charge: &str) -> i32 {
-    let digits: String = charge.chars().take_while(|c| c.is_ascii_digit()).collect();
-    let count = if digits.is_empty() {
-        1
-    } else {
-        digits.parse().unwrap_or(1)
-    };
-    if charge.ends_with('-') {
-        -count
-    } else {
-        count
-    }
-}
-
-/// V2000 bond order code — the Ruby `BOND_TYPES`. Wedge/hash cross as
-/// single order carrying the wedge through the stereo field.
-fn bond_type(kind: &str) -> chemomer::Result<i32> {
-    match kind {
-        "single" | "wedge" | "hash" => Ok(1),
-        "double" => Ok(2),
-        "triple" => Ok(3),
-        "aromatic" => Ok(4),
-        other => Err(chemomer::Error::new(format!(
-            "{other} bonds have no molfile V2000 type"
-        ))),
-    }
-}
-
-/// V2000 bond stereo code — the Ruby `BOND_STEREO`: wedge up (1),
-/// hash down (6), everything else unbearing (0).
-fn bond_stereo(kind: &str) -> i32 {
-    match kind {
-        "wedge" => 1,
-        "hash" => 6,
-        _ => 0,
-    }
-}
-
-/// The atom-line stereo-parity field: TH1 → 1, TH2 → 2, otherwise 0 —
-/// the Ruby `CHIRALITY_PARITY` fetch. The oracle ignores the field for
-/// 2D input; enantiomers separate through the WEDGE, which
-/// [`wedge_bonds`] lays on the stereocentre's first bond.
-fn chirality_parity(atom: &model::Atom) -> i32 {
-    match atom.chirality.as_deref() {
-        Some("TH1") => 1,
-        Some("TH2") => 2,
-        _ => 0,
-    }
-}
-
-/// The MDL H-count code: 0 default, 1 H0, 2 H1, 3 H2, ... — so a
-/// stated count n crosses as n + 1 (the Ruby `hcount_code`). Absent
-/// means "per valence rules" and crosses 0.
-fn hcount_code(atom: &model::Atom) -> i32 {
-    atom.hydrogens.map_or(0, |count| count as i32 + 1)
-}
-
-/// One wedge per chiral atom, on its first bond, oriented
-/// centre → neighbour: TH1 rises (stereo 1), TH2 falls (6). Returns
-/// { edge index → (from, to, stereo) } — the Ruby `wedge_bonds`.
-fn wedge_bonds(
-    atoms: &[model::Atom],
-    edges: &[Edge],
-) -> std::collections::HashMap<usize, (usize, usize, i32)> {
-    let mut wedges = std::collections::HashMap::new();
-    for (index, atom) in atoms.iter().enumerate() {
-        let stereo = match atom.chirality.as_deref() {
-            Some("TH1") => 1,
-            Some("TH2") => 6,
-            _ => continue,
-        };
-        let Some(edge_index) = edges
-            .iter()
-            .position(|edge| edge.from == index || edge.to == index)
-        else {
-            continue;
-        };
-        let edge = &edges[edge_index];
-        wedges.insert(
-            edge_index,
-            if edge.from == index {
-                (index, edge.to, stereo)
-            } else {
-                (index, edge.from, stereo)
-            },
-        );
-    }
-    wedges
-}
-
-/// One `M  CHG` / `M  ISO` property line; `None` (dropped) when the
-/// pair list is empty — the Ruby `property_line`.
-fn property_line(prefix: &str, pairs: &[(i32, i32)]) -> Option<String> {
-    if pairs.is_empty() {
-        return None;
-    }
-    let mut line = format!("{prefix}{:3}", pairs.len());
-    for (index, value) in pairs {
-        line.push_str(&format!("{:4}{:4}", index, value));
-    }
-    Some(line)
-}
-
-/// Model molecule → V2000 molfile — the minimal writer the identity
-/// pipe needs (TODO.v2/09 slice 2 replaces it with the full
-/// interchange). Field formats mirror the Ruby `Molfile::Writer`
-/// byte-for-byte; coordinates are all zero (the `layout: false` call
-/// the Ruby identity seam makes — InChI never reads coordinates, and
-/// tetrahedral stereo crosses through the wedge bonds, not geometry).
-/// The graph build is the shared strict walk
-/// ([`structure::build_graph_strict`]) — the identity of a fragmented
-/// molecule is silently WRONG, which is worse than a rejection.
-fn write_v2000(molecule: &model::Molecule) -> chemomer::Result<String> {
-    let (atoms, edges) = structure::build_graph_strict(molecule)
-        .map_err(|error| chemomer::Error::new(error.message))?;
-    if edges.is_empty() && atoms.len() > 1 {
-        return Err(chemomer::Error::new(
-            "molecule has no bonds — a formula is not a structure",
-        ));
-    }
-
-    let mut lines: Vec<String> = vec![
-        String::new(),
-        "  AsciiChem".to_string(),
-        String::new(),
-        format!(
-            "{:3}{:3}  0  0  0  0  0  0  0  0999 V2000",
-            atoms.len(),
-            edges.len()
-        ),
-    ];
-
-    let wedges = wedge_bonds(&atoms, &edges);
-    for atom in &atoms {
-        lines.push(format!(
-            "{:10.4}{:10.4}{:10.4} {:<3} 0  0{:3}{:3}  0  0  0  0  0  0  0  0  0",
-            0.0,
-            0.0,
-            0.0,
-            atom.element,
-            chirality_parity(atom),
-            hcount_code(atom),
-        ));
-    }
-
-    for (index, edge) in edges.iter().enumerate() {
-        let stereo = bond_stereo(&edge.kind);
-        let kind = bond_type(&edge.kind)?;
-        let (from, to, stereo) = match wedges.get(&index) {
-            Some(&(from, to, wedge_stereo)) => (from, to, wedge_stereo),
-            None => (edge.from, edge.to, stereo),
-        };
-        lines.push(format!(
-            "{:3}{:3}{:3}{:3}  0  0  0  0  0  0  0",
-            from + 1,
-            to + 1,
-            kind,
-            stereo
-        ));
-    }
-
-    let charges: Vec<(i32, i32)> = atoms
-        .iter()
-        .enumerate()
-        .filter_map(|(i, atom)| {
-            atom.charge
-                .as_ref()
-                .map(|charge| (i as i32 + 1, charge_value(charge)))
-        })
-        .collect();
-    if let Some(line) = property_line("M  CHG", &charges) {
-        lines.push(line);
-    }
-    let isotopes: Vec<(i32, i32)> = atoms
-        .iter()
-        .enumerate()
-        .filter_map(|(i, atom)| {
-            atom.isotope
-                .as_ref()
-                .map(|isotope| (i as i32 + 1, isotope.parse().unwrap_or(0)))
-        })
-        .collect();
-    if let Some(line) = property_line("M  ISO", &isotopes) {
-        lines.push(line);
-    }
-
-    lines.push("M  END".to_string());
-    Ok(lines.join("\n") + "\n")
+    let molfile =
+        write_molfile_unlaid(molecule, "").map_err(|error| chemomer::Error::new(error.message))?;
+    derive_from_molfile(&molfile)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::model::Node;
+    use crate::structure;
 
     fn molecule(input: &str) -> model::Molecule {
         let nodes = crate::parse_nodes(input).expect("input parses");
@@ -420,7 +229,7 @@ mod tests {
 
     #[test]
     fn the_written_molfile_carries_the_v2000_shape() {
-        let molfile = write_v2000(&molecule("C-O^-")).expect("writes");
+        let molfile = write_molfile_unlaid(&molecule("C-O^-"), "").expect("writes");
         let lines: Vec<&str> = molfile.lines().collect();
         assert_eq!(lines[0], "");
         assert_eq!(lines[1], "  AsciiChem");
@@ -442,7 +251,7 @@ mod tests {
     fn the_wedge_lands_on_the_first_bond_of_the_stereocentre() {
         // TH1 on the first atom, first bond: the bond line's stereo
         // field reads 1 (up), the atom line's parity field 1.
-        let molfile = write_v2000(&molecule("C@TH1-C-C")).expect("writes");
+        let molfile = write_molfile_unlaid(&molecule("C@TH1-C-C"), "").expect("writes");
         let lines: Vec<&str> = molfile.lines().collect();
         assert!(
             lines[4].contains(" C   0  0  1  0"),
@@ -455,7 +264,7 @@ mod tests {
             lines[7]
         );
         // TH2: parity 2 on the atom line, stereo 6 (down) on the bond.
-        let molfile = write_v2000(&molecule("C@TH2-C-C")).expect("writes");
+        let molfile = write_molfile_unlaid(&molecule("C@TH2-C-C"), "").expect("writes");
         let lines: Vec<&str> = molfile.lines().collect();
         assert!(
             lines[4].contains(" C   0  0  2  0"),
