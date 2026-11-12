@@ -245,5 +245,3 @@ fn parse_inner(source: &str) -> Result<(), ParseError> {
     }
     Ok(())
 }
-
-
