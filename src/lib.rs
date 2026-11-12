@@ -25,7 +25,12 @@
 //! chemistry errors — balance, charge balance, valence, isotope
 //! sanity, element validation, unclosed rings, identifier
 //! format/consistency, and the identity cross-check through the same
-//! in-process engine. Constructs outside the subset report
+//! in-process engine. The resolver ([`crate::resolver`]) turns
+//! identifiers into substance records across PubChem, OPSIN and CAS
+//! Common Chemistry — TTL-cached in the user cache dir, provenance-
+//! stamped with each source's required attribution, per-source
+//! isolated, and serialized through the wire substance-record form.
+//! Constructs outside the subset report
 //! `Unsupported` rather than guessing.
 
 use std::sync::OnceLock;
@@ -39,6 +44,7 @@ pub mod mathml;
 pub mod model;
 pub mod molfile;
 pub mod perception;
+pub mod resolver;
 pub mod smiles;
 pub mod structure;
 pub mod svg;

@@ -11,5 +11,12 @@ chemomer = "0.1.0"
 parsanol = "0.18.9"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+# The resolver's HTTP transport (TODO.v2/17 slice 5; the maintainer-vetted
+# dependency — the core engines' zero-dependency policy does not extend to
+# network I/O, that is the resolver's job). TLS rides rustls, ureq's default.
+ureq = "2.12"
+# Cache keys: sha256 over source:convention:value, the Ruby cache's
+# Digest::SHA256 (pure Rust, no transport baggage).
+sha2 = "0.10"
 
 [dev-dependencies]
