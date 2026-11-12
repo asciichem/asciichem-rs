@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use parsanol::portable::transform::Value;
 
 use crate::model::{
-    Atom, Bond, Conditions, ElectronConfiguration, Flow, Group, Identifier, Mechanism,
+    Atom, Bond, Conditions, Crystal, ElectronConfiguration, Flow, Group, Identifier, Mechanism,
     MechanismStep, Molecule, Name, Node, Reaction, ReactionCascade,
 };
 
@@ -31,16 +31,16 @@ impl std::fmt::Display for BuildError {
 
 type Result<T> = std::result::Result<T, BuildError>;
 
-const COORDINATE_KEYS: [&str; 9] = [
+/// Atom annotation captures with no model home yet (cartesian
+/// coordinates, parity, spin, titles). The fractional triple is NOT
+/// here: `@f(x,y,z)` maps into the atom (the crystal node's data).
+const UNSUPPORTED_ATOM_KEYS: [&str; 6] = [
     "x2",
     "y2",
     "z2",
     "atom_parity",
     "spin_multiplicity",
     "atom_title",
-    "x_fract",
-    "y_fract",
-    "z_fract",
 ];
 
 const BOND_KEYS: [(&str, &str); 10] = [
@@ -135,6 +135,9 @@ pub fn build_node(value: &Value) -> Result<Node> {
     if let Some(mech) = hash.get("mechanism_node") {
         return build_mechanism(mech);
     }
+    if let Some(crystal) = hash.get("crystal_node") {
+        return build_crystal(crystal);
+    }
     if hash.contains_key("open_bracket") && hash.contains_key("group_nodes") {
         return build_group(hash);
     }
@@ -181,7 +184,7 @@ fn strip_quotes(s: &str) -> String {
 
 fn build_atom(value: &Value) -> Result<Node> {
     let hash = expect_hash(value)?;
-    for key in COORDINATE_KEYS {
+    for key in UNSUPPORTED_ATOM_KEYS {
         if hash.contains_key(key) {
             return Err(BuildError::Unsupported(format!(
                 "crystal-coordinate atom fields ({key})"
@@ -217,7 +220,29 @@ fn build_atom(value: &Value) -> Result<Node> {
         x2: None,
         y2: None,
         z2: None,
+        x_fract: fract_float(hash.get("x_fract")),
+        y_fract: fract_float(hash.get("y_fract")),
+        z_fract: fract_float(hash.get("z_fract")),
     }))
+}
+
+// Ruby's `String#to_f` for the fractional captures: the leading
+// numeric prefix, 0.0 when there is none (the grammar only produces
+// clean floats, so the fallback mirrors the reference without
+// second-guessing it).
+fn fract_float(value: Option<&Value>) -> Option<f64> {
+    let s = str_of(value)?;
+    let trimmed = s.trim_start();
+    let digits: String = trimmed
+        .trim_start_matches(['+', '-'])
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.')
+        .collect();
+    let parsed: f64 = digits.parse().unwrap_or(0.0);
+    Some(match trimmed.starts_with('-') {
+        true => -parsed,
+        false => parsed,
+    })
 }
 
 // Strip a leading marker char (`^` or `_`) from the captured value;
@@ -522,6 +547,71 @@ fn build_mechanism(value: &Value) -> Result<Node> {
         }
     }
     Ok(Node::Mechanism(Mechanism { steps, spectators }))
+}
+
+// -- crystals -------------------------------------------------------------
+
+/// Builds a Crystal from the grammar's raw captures (name, the
+/// `a=...,sg=...` parameter string, the atoms body) — the reference's
+/// CrystalBuilder: the parameters split on `,`/`=`, the body re-parsed
+/// through the full formula grammar with its atoms kept.
+fn build_crystal(value: &Value) -> Result<Node> {
+    let hash = expect_hash(value)?;
+    let name = strip_value(hash.get("crystal_name"));
+    let params = parse_crystal_params(str_of(hash.get("crystal_params")).as_deref());
+    let cell = |key: &str| params.get(key).cloned().flatten();
+    Ok(Node::Crystal(Crystal {
+        name,
+        a: cell("a"),
+        b: cell("b"),
+        c: cell("c"),
+        alpha: cell("alpha"),
+        beta: cell("beta"),
+        gamma: cell("gamma"),
+        spacegroup: cell("sg"),
+        atoms: crystal_atoms(str_of(hash.get("crystal_body")).as_deref())?,
+    }))
+}
+
+/// `a=5.64,sg=Fm-3m` → the parameter map. A pair without `=` carries
+/// a nil value (the reference's `val&.strip`).
+fn parse_crystal_params(params: Option<&str>) -> HashMap<String, Option<String>> {
+    let Some(params) = params else {
+        return HashMap::new();
+    };
+    params
+        .split(',')
+        .filter_map(|pair| {
+            let (key, value) = pair.trim().split_once('=')?;
+            let key = key.trim();
+            (!key.is_empty()).then(|| (key.to_string(), Some(value.trim().to_string())))
+        })
+        .collect()
+}
+
+/// The crystal body's atoms: the body re-parses through the full
+/// formula grammar and its molecules' atoms are kept (the reference's
+/// `parse_atoms`). Runs on the CURRENT stack — the deep-stack worker
+/// is single-threaded, so routing the inner parse through
+/// [`crate::parse_nodes`] from a worker-driven build would deadlock.
+fn crystal_atoms(body: Option<&str>) -> Result<Vec<Atom>> {
+    let Some(body) = body else {
+        return Ok(vec![]);
+    };
+    let nodes = crate::parse_nodes_direct(body)
+        .map_err(|error| BuildError::Malformed(format!("crystal body failed to parse: {error}")))?;
+    let mut atoms = Vec::new();
+    for node in &nodes {
+        let Node::Molecule(molecule) = node else {
+            continue;
+        };
+        for inner in &molecule.nodes {
+            if let Node::Atom(atom) = inner {
+                atoms.push(atom.clone());
+            }
+        }
+    }
+    Ok(atoms)
 }
 
 fn parse_entries(body: Option<&str>) -> Result<Vec<(String, String)>> {

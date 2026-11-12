@@ -157,6 +157,7 @@ fn render_node(node: &Node) -> Render<Node_> {
         Node::ReactionCascade(cascade) => Ok(Node_::Element(render_cascade(cascade)?)),
         Node::ElectronConfiguration(ec) => Ok(Node_::Element(render_electron_configuration(ec))),
         Node::Mechanism(mech) => Ok(Node_::Element(render_mechanism(mech))),
+        Node::Crystal(crystal) => Ok(Node_::Element(render_crystal(crystal))),
         Node::EmbeddedMath(_) => Err(crate::build::BuildError::Unsupported(
             "embedded math rendering (Plurimath pipeline)".into(),
         )),
@@ -378,6 +379,60 @@ fn render_mechanism(mech: &crate::model::Mechanism) -> Element {
     mrow
 }
 
+/// The crystal: `<mrow><mi>crystal</mi>...<mtable>...</mtable></mrow>`
+/// — the leading mi identifies the construct, the tables lay out the
+/// cell parameters (greek labels per the reference's CELL_LABELS) and
+/// the 1-indexed asymmetric-unit atoms (each rendered through the
+/// regular atom rule).
+fn render_crystal(crystal: &crate::model::Crystal) -> Element {
+    let mut mrow = Element::new("mrow");
+    mrow.children.push(Node_::Element(Element::mi("crystal")));
+    if let Some(name) = &crystal.name {
+        mrow.children.push(Node_::Element(named_bracket(name)));
+    }
+    let cells: Vec<Vec<Node_>> = crystal
+        .cell_params()
+        .into_iter()
+        .map(|(label, value)| {
+            vec![
+                Node_::Element(Element::mi(crate::model::Crystal::greek_label(
+                    label, "mathml",
+                ))),
+                Node_::Element(Element::text("mn", value)),
+            ]
+        })
+        .collect();
+    if !cells.is_empty() {
+        mrow.children.push(Node_::Element(simple_table(cells)));
+    }
+    if !crystal.atoms.is_empty() {
+        let rows: Vec<Vec<Node_>> = crystal
+            .atoms
+            .iter()
+            .enumerate()
+            .map(|(index, atom)| {
+                vec![
+                    Node_::Element(Element::text("mn", index + 1)),
+                    Node_::Element(render_atom(atom)),
+                ]
+            })
+            .collect();
+        mrow.children.push(Node_::Element(simple_table(rows)));
+    }
+    mrow
+}
+
+/// `[content]` as `<mrow><mo>[</mo><mtext>content</mtext><mo>]</mo></mrow>`
+/// — the construct-name bracket (e.g. crystal[NaCl]).
+fn named_bracket(content: &str) -> Element {
+    let mut mrow = Element::new("mrow");
+    mrow.children.push(Node_::Element(Element::text("mo", "[")));
+    mrow.children
+        .push(Node_::Element(Element::text("mtext", content)));
+    mrow.children.push(Node_::Element(Element::text("mo", "]")));
+    mrow
+}
+
 fn add_terms(parent: &mut Element, terms: &[Node]) -> Render<()> {
     for (index, term) in terms.iter().enumerate() {
         if index > 0 {
@@ -459,17 +514,6 @@ impl Bond {
             "wavy" => "∼",
             "aromatic" => ":",
             _ => "-",
-        }
-    }
-}
-
-impl Reaction {
-    fn arrow_entity(&self) -> &'static str {
-        match self.arrow.as_str() {
-            "reverse" => "←",
-            "equilibrium" => "⇌",
-            "resonance" => "↔",
-            _ => "→",
         }
     }
 }

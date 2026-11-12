@@ -92,6 +92,12 @@ pub enum MechanismTag {
     Mechanism,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CrystalTag {
+    #[serde(rename = "crystal")]
+    Crystal,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum WireNode {
@@ -108,6 +114,7 @@ pub enum WireNode {
     EmbeddedMath(EmbeddedMath),
     Text(Text),
     Mechanism(Mechanism),
+    Crystal(Crystal),
 }
 
 impl WireNode {
@@ -126,6 +133,7 @@ impl WireNode {
             WireNode::EmbeddedMath(_) => "embedded-math",
             WireNode::Text(_) => "text",
             WireNode::Mechanism(_) => "mechanism",
+            WireNode::Crystal(_) => "crystal",
         }
     }
 }
@@ -293,6 +301,33 @@ pub struct Mechanism {
     pub spectators: Vec<Molecule>,
 }
 
+/// The cell parameters carry NUMBERS on the wire (the shared v1
+/// crystal schema's `type: number`) — the model keeps the authored
+/// strings and the routing casts.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Crystal {
+    #[serde(rename = "type")]
+    pub tag: CrystalTag,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub a: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub b: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub c: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alpha: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub beta: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gamma: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spacegroup: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub atoms: Vec<Atom>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum WireError {
     Unsupported(String),
@@ -334,20 +369,7 @@ fn node_to_wire(node: &Node) -> Result<WireNode> {
             multiplicity: group.multiplicity.clone(),
             bracket: group.bracket.clone(),
         }),
-        Node::Atom(atom) => WireNode::Atom(Atom {
-            tag: AtomTag::Atom,
-            element: atom.element.clone(),
-            isotope: atom.isotope.clone(),
-            charge: atom.charge.clone(),
-            subscript: atom.subscript.clone(),
-            oxidation_state: atom.oxidation_state.clone(),
-            lone_pairs: atom.lone_pairs,
-            radical_electrons: atom.radical_electrons,
-            ring_closures: atom.ring_closures.clone(),
-            aromatic: atom.aromatic,
-            hydrogens: atom.hydrogens,
-            chirality: atom.chirality.clone(),
-        }),
+        Node::Atom(atom) => WireNode::Atom(atom_to_wire(atom)),
         Node::Bond(bond) => WireNode::Bond(Bond {
             tag: BondTag::Bond,
             kind: bond.kind.clone(),
@@ -378,6 +400,51 @@ fn node_to_wire(node: &Node) -> Result<WireNode> {
             content: content.clone(),
         }),
         Node::Mechanism(mech) => WireNode::Mechanism(mechanism_to_wire(mech)?),
+        Node::Crystal(crystal) => WireNode::Crystal(crystal_to_wire(crystal)?),
+    })
+}
+
+fn atom_to_wire(atom: &model::Atom) -> Atom {
+    Atom {
+        tag: AtomTag::Atom,
+        element: atom.element.clone(),
+        isotope: atom.isotope.clone(),
+        charge: atom.charge.clone(),
+        subscript: atom.subscript.clone(),
+        oxidation_state: atom.oxidation_state.clone(),
+        lone_pairs: atom.lone_pairs,
+        radical_electrons: atom.radical_electrons,
+        ring_closures: atom.ring_closures.clone(),
+        aromatic: atom.aromatic,
+        hydrogens: atom.hydrogens,
+        chirality: atom.chirality.clone(),
+    }
+}
+
+// The cell parameters cast the model's authored strings to the wire's
+// numbers (the reference adapter hands them to the `:float` wire
+// attributes, which cast the same way); a non-numeric capture is a
+// malformed record, not a silent null.
+fn crystal_to_wire(crystal: &model::Crystal) -> Result<Crystal> {
+    let cell = |value: &Option<String>| -> Result<Option<f64>> {
+        match value {
+            None => Ok(None),
+            Some(text) => text.trim().parse::<f64>().map(Some).map_err(|_| {
+                WireError::Malformed(format!("crystal cell param {text:?} is not a number"))
+            }),
+        }
+    };
+    Ok(Crystal {
+        tag: CrystalTag::Crystal,
+        name: crystal.name.clone(),
+        a: cell(&crystal.a)?,
+        b: cell(&crystal.b)?,
+        c: cell(&crystal.c)?,
+        alpha: cell(&crystal.alpha)?,
+        beta: cell(&crystal.beta)?,
+        gamma: cell(&crystal.gamma)?,
+        spacegroup: crystal.spacegroup.clone(),
+        atoms: crystal.atoms.iter().map(atom_to_wire).collect(),
     })
 }
 
@@ -529,6 +596,9 @@ pub fn node_from_wire(wire: &WireNode) -> Result<Node> {
             x2: None,
             y2: None,
             z2: None,
+            x_fract: None,
+            y_fract: None,
+            z_fract: None,
         }),
         WireNode::Bond(bond) => Node::Bond(model::Bond {
             kind: bond.kind.clone(),
@@ -561,6 +631,44 @@ pub fn node_from_wire(wire: &WireNode) -> Result<Node> {
         WireNode::EmbeddedMath(math) => Node::EmbeddedMath(math.source.clone()),
         WireNode::Text(text) => Node::Text(text.content.clone()),
         WireNode::Mechanism(mech) => Node::Mechanism(mechanism_from_wire(mech)?),
+        WireNode::Crystal(crystal) => Node::Crystal(model::Crystal {
+            name: crystal.name.clone(),
+            // The wire's numbers render back through the plain float
+            // text (90 → "90", 5.64 → "5.64").
+            a: crystal.a.map(|value| value.to_string()),
+            b: crystal.b.map(|value| value.to_string()),
+            c: crystal.c.map(|value| value.to_string()),
+            alpha: crystal.alpha.map(|value| value.to_string()),
+            beta: crystal.beta.map(|value| value.to_string()),
+            gamma: crystal.gamma.map(|value| value.to_string()),
+            spacegroup: crystal.spacegroup.clone(),
+            atoms: crystal
+                .atoms
+                .iter()
+                .map(|atom| model::Atom {
+                    element: atom.element.clone(),
+                    isotope: atom.isotope.clone(),
+                    subscript: atom.subscript.clone(),
+                    superscript: None,
+                    charge: atom.charge.clone(),
+                    oxidation_state: atom.oxidation_state.clone(),
+                    lone_pairs: atom.lone_pairs,
+                    radical_electrons: atom.radical_electrons,
+                    ring_closures: atom.ring_closures.clone(),
+                    aromatic: atom.aromatic,
+                    hydrogens: atom.hydrogens,
+                    chirality: atom.chirality.clone(),
+                    x2: None,
+                    y2: None,
+                    z2: None,
+                    // Fractional coordinates are model-only; the wire
+                    // atom carries none.
+                    x_fract: None,
+                    y_fract: None,
+                    z_fract: None,
+                })
+                .collect(),
+        }),
     })
 }
 
