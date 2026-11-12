@@ -1,0 +1,17 @@
+<bibitem id="cas50782" type="dataset" schema-version="v1.5.6">
+  <title type="main">50-78-2 - example substance record</title>
+  <docidentifier type="example">cas: 50-78-2</docidentifier>
+  <date type="accessed">
+    <on>2026-01-05</on>
+  </date>
+  <contributor>
+    <role type="publisher"/>
+    <organization>
+      <name>example</name>
+    </organization>
+  </contributor>
+  <note type="provenance">Retrieved from example; version 2026.11; Example Data Source</note>
+  <keyword>
+    <vocab>cas=50-78-2</vocab>
+  </keyword>
+</bibitem>

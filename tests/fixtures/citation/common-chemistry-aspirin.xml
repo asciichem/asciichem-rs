@@ -1,0 +1,30 @@
+<bibitem id="CASRN50782" type="dataset" schema-version="v1.5.6">
+  <title type="main">Aspirin - CAS Common Chemistry substance record</title>
+  <uri type="src">https://commonchemistry.cas.org/detail?cas_rn=50-78-2</uri>
+  <docidentifier type="common_chemistry">CAS RN 50-78-2</docidentifier>
+  <date type="accessed">
+    <on>2026-01-05</on>
+  </date>
+  <contributor>
+    <role type="publisher"/>
+    <organization>
+      <name>CAS Common Chemistry</name>
+    </organization>
+  </contributor>
+  <note type="provenance">Retrieved from common_chemistry; CAS Common Chemistry (CC BY-NC 4.0)</note>
+  <keyword>
+    <vocab>cas=50-78-2</vocab>
+  </keyword>
+  <keyword>
+    <vocab>inchikey=BSYNRYMUTXBXSQ-UHFFFAOYSA-N</vocab>
+  </keyword>
+  <keyword>
+    <vocab>canonical-smiles=CC(=O)OC1=CC=CC=C1C(=O)O</vocab>
+  </keyword>
+  <keyword>
+    <vocab>inchi=InChI=1S/C9H8O4/c1-6(10)13-8-5-3-2-4-7(8)9(11)12/h2-5H,1H3,(H,11,12)</vocab>
+  </keyword>
+  <keyword>
+    <vocab>iupac-name=2-acetyloxybenzoic acid</vocab>
+  </keyword>
+</bibitem>
