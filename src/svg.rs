@@ -476,6 +476,12 @@ fn segments_for_node(node: &Node) -> Vec<Segment> {
             let text = node.to_string();
             vec![seg(text.lines().next().unwrap_or_default(), 0.0)]
         }
+        Node::Crystal(_) => {
+            // The reference renders constructs without a natural 2D
+            // form through the canonical text (Formatter.render(:text,
+            // crystal)) — one line here.
+            vec![seg(node.to_string(), 0.0)]
+        }
     }
 }
 

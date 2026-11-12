@@ -16,22 +16,22 @@
 //!
 //! # Checks (the reference's thirteen, and where they stand here)
 //!
-//! balance, bracket balance, charge balance, element validation,
-//! identifier consistency, identifier format, the engine-scaled
-//! identity cross-check, isotope sanity, unclosed rings, and valence
-//! are ported and gated (the reference's spec semantics mirrored in
-//! [`checks`], the shared corpus's `linter-expectations` family in
-//! `tests/corpus.rs`).
+//! balance, bracket balance, charge balance, crystal sanity (cell
+//! lengths positive, angles in (0, 180], fractional coordinates in
+//! [0, 1)), element validation, identifier consistency, identifier
+//! format, the engine-scaled identity cross-check, isotope sanity,
+//! unclosed rings, and valence are ported and gated (the reference's
+//! spec semantics mirrored in [`checks`], the shared corpus's
+//! `linter-expectations` family in `tests/corpus.rs`).
 //!
-//! Three reference checks have no Rust counterpart YET, by
-//! construction rather than omission: CrystalSanityCheck,
-//! SpectrumPeakCheck, and ZMatrixReferenceCheck validate model node
-//! kinds (`Crystal`, `Spectrum`, `ZMatrix`) that the Rust model subset
-//! does not carry — the model build declines those constructs with
-//! `Unsupported` upstream, so no model tree reaching the linter can
-//! contain them. They port together with the model subset expansion
-//! (the corpus's linter-coverage extension, asciichem-tests#19, tracks
-//! the fixtures).
+//! Two reference checks have no Rust counterpart YET, by
+//! construction rather than omission: SpectrumPeakCheck and
+//! ZMatrixReferenceCheck validate model node kinds (`Spectrum`,
+//! `ZMatrix`) that the Rust model subset does not carry — the model
+//! build declines those constructs with `Unsupported` upstream, so no
+//! model tree reaching the linter can contain them. They port together
+//! with the model subset expansion (the corpus's linter-coverage
+//! extension, asciichem-tests#19, tracks the fixtures).
 //!
 //! The bracket-balance check keeps its registry slot but shrinks to
 //! the one property that can drift over Rust models (an unknown
@@ -202,6 +202,7 @@ pub fn builtin() -> &'static Registry {
         registry.add("balance", checks::balance);
         registry.add("bracket_balance", checks::bracket_balance);
         registry.add("charge_balance", checks::charge_balance);
+        registry.add("crystal_sanity", checks::crystal_sanity);
         registry.add("element_validation", checks::element_validation);
         registry.add("identifier_consistency", checks::identifier_consistency);
         registry.add("identifier_format", checks::identifier_format);
@@ -242,6 +243,7 @@ mod tests {
                 "balance",
                 "bracket_balance",
                 "charge_balance",
+                "crystal_sanity",
                 "element_validation",
                 "identifier_consistency",
                 "identifier_format",

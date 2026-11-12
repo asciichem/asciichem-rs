@@ -315,6 +315,103 @@ pub fn isotope_sanity(formula: &[Node]) -> Vec<Diagnostic> {
     diagnostics
 }
 
+// -- crystal sanity ------------------------------------------------------
+
+/// Validates unit-cell parameters on a Crystal node (the reference
+/// `CrystalSanityCheck`):
+///
+/// - lengths (a, b, c) must be positive
+/// - angles (alpha, beta, gamma) must be in (0, 180] degrees
+/// - fractional coordinates on the cell's atoms must be in [0, 1)
+///
+/// Each cell parameter is optional in the model (a partial crystal
+/// description is allowed), so missing values are skipped, not
+/// flagged — and non-numeric captures are skipped too (the reference's
+/// `Float(value, exception: false)`).
+pub fn crystal_sanity(formula: &[Node]) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    for node in walk(formula) {
+        let Node::Crystal(crystal) = node else {
+            continue;
+        };
+        check_lengths(crystal, &mut diagnostics);
+        check_angles(crystal, &mut diagnostics);
+        check_fractional_coords(crystal, &mut diagnostics);
+    }
+    diagnostics
+}
+
+fn check_lengths(crystal: &model::Crystal, diagnostics: &mut Vec<Diagnostic>) {
+    for (dim, value) in [("a", &crystal.a), ("b", &crystal.b), ("c", &crystal.c)] {
+        let Some(number) = numeric(value.as_deref()) else {
+            continue;
+        };
+        if number > 0.0 {
+            continue;
+        }
+        diagnostics.push(Diagnostic::error(
+            format!(
+                "Crystal {dim} must be positive, got {}",
+                value.as_deref().unwrap_or_default()
+            ),
+            Some(crystal.diagnostic_label()),
+        ));
+    }
+}
+
+fn check_angles(crystal: &model::Crystal, diagnostics: &mut Vec<Diagnostic>) {
+    for (dim, value) in [
+        ("alpha", &crystal.alpha),
+        ("beta", &crystal.beta),
+        ("gamma", &crystal.gamma),
+    ] {
+        let Some(number) = numeric(value.as_deref()) else {
+            continue;
+        };
+        if (0.0..=180.0).contains(&number) && number != 0.0 {
+            continue;
+        }
+        diagnostics.push(Diagnostic::error(
+            format!(
+                "Crystal {dim} must be in (0, 180], got {}",
+                value.as_deref().unwrap_or_default()
+            ),
+            Some(crystal.diagnostic_label()),
+        ));
+    }
+}
+
+fn check_fractional_coords(crystal: &model::Crystal, diagnostics: &mut Vec<Diagnostic>) {
+    for atom in &crystal.atoms {
+        for (axis, value) in [
+            ("x_fract", atom.x_fract),
+            ("y_fract", atom.y_fract),
+            ("z_fract", atom.z_fract),
+        ] {
+            let Some(number) = value else {
+                continue;
+            };
+            if (0.0..1.0).contains(&number) {
+                continue;
+            }
+            diagnostics.push(Diagnostic::warning(
+                format!(
+                    "Fractional coordinate {axis}={} on {} is outside [0, 1)",
+                    crate::model::format_float(number),
+                    atom.element
+                ),
+                Some(crystal.diagnostic_label()),
+            ));
+        }
+    }
+}
+
+/// The reference's `Float(value, exception: false)`: a numeric string
+/// parses, anything else (including nil) skips the check.
+fn numeric(value: Option<&str>) -> Option<f64> {
+    value?.trim().parse::<f64>().ok()
+}
+
 // -- element validation --------------------------------------------------
 
 /// Validates that each atom's element symbol is in the periodic table.
@@ -732,6 +829,7 @@ mod tests {
             balance,
             bracket_balance,
             charge_balance,
+            crystal_sanity,
             element_validation,
             identifier_consistency,
             identifier_format,
@@ -1111,12 +1209,46 @@ mod tests {
         assert!(lint("`x^2` \"note\"").is_empty());
     }
 
+    // -- crystal sanity ---------------------------------------------------
+
     #[test]
-    fn constructs_outside_the_model_subset_never_reach_the_linter() {
-        // Crystal/spectrum/zmatrix build as `Unsupported` upstream —
-        // the linter cannot observe them (see the module docs).
-        let error = crate::parse_nodes("crystal[x](a=1){Na@f(0,0,0)}")
-            .expect_err("outside the model subset");
-        assert!(error.message.contains("crystal_node"), "{}", error.message);
+    fn negative_cell_lengths_error_with_the_authored_value() {
+        // The corpus cli/lint-json-crystal case's exact expectation.
+        let errors = errors_of("crystal[x](a=-1){Na@f(0,0,0)}");
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].message, "Crystal a must be positive, got -1");
+        assert_eq!(errors[0].label.as_deref(), Some("Crystal(x)"));
+    }
+
+    #[test]
+    fn non_positive_angles_error_and_valid_cells_stay_silent() {
+        let errors = errors_of("crystal[x](alpha=0,beta=181,gamma=-1)");
+        assert_eq!(errors.len(), 3);
+        assert!(errors
+            .iter()
+            .all(|diagnostic| diagnostic.message.contains("must be in (0, 180]")));
+        assert!(lint("crystal[x](a=5.64,b=5.64,c=5.64,alpha=90,beta=90,gamma=180)").is_empty());
+    }
+
+    #[test]
+    fn out_of_range_fractional_coordinates_warn() {
+        let warnings: Vec<Diagnostic> = lint("crystal[x](a=1){Na@f(0,1.5,0)}")
+            .into_iter()
+            .filter(|diagnostic| diagnostic.severity == crate::linter::Severity::Warning)
+            .collect();
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(
+            warnings[0].message,
+            "Fractional coordinate y_fract=1.5 on Na is outside [0, 1)"
+        );
+        assert_eq!(warnings[0].label.as_deref(), Some("Crystal(x)"));
+    }
+
+    #[test]
+    fn partial_and_non_numeric_cells_are_skipped_not_flagged() {
+        // A partial description is allowed; a non-numeric capture skips
+        // (the reference's Float(..., exception: false)).
+        assert!(lint("crystal[x]").is_empty());
+        assert!(lint("crystal[x](sg=Fm-3m)").is_empty());
     }
 }

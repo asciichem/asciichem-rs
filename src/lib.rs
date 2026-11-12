@@ -13,7 +13,7 @@
 //! transform into the DSL shapes (`value`), a typed model subset
 //! (`model`) built from them (`build`), with the canonical text
 //! renderer on the model, the MathML renderer (`mathml`) byte-exact
-//! against the corpus goldens, and the canonical wire JSON (`wire`)
+//! against the corpus L2 goldens, and the canonical wire JSON (`wire`)
 //! field-for-field with the shared v1 schemas. The structure
 //! interchange layer (`structure`, `smiles`, `molfile`, `perception`)
 //! ingests and emits SMILES and molfile V2000 with the shared
@@ -174,7 +174,7 @@ pub fn parse_nodes(input: &str) -> Result<Vec<model::Node>, ParseError> {
 /// The parse itself — runs ON the deep-stack worker. Internal: never
 /// call from inside another worker job (the worker is single-threaded;
 /// nesting self-deadlocks).
-fn parse_nodes_direct(source: &str) -> Result<Vec<model::Node>, ParseError> {
+pub(crate) fn parse_nodes_direct(source: &str) -> Result<Vec<model::Node>, ParseError> {
     let value = parse_value(source)?;
     build::build_formula(&value).map_err(|error| ParseError {
         message: error.to_string(),

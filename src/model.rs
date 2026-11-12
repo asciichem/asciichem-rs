@@ -54,6 +54,13 @@ pub struct Atom {
     pub x2: Option<f64>,
     pub y2: Option<f64>,
     pub z2: Option<f64>,
+    /// Fractional (crystallographic) coordinates from the `@f(x,y,z)`
+    /// atom annotation. Model-only render data — the canonical wire
+    /// atom carries none; the crystal's atoms array references them
+    /// through the same atom form.
+    pub x_fract: Option<f64>,
+    pub y_fract: Option<f64>,
+    pub z_fract: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,7 +70,9 @@ pub struct Bond {
 }
 
 impl Bond {
-    fn ascii(&self) -> &'static str {
+    /// The plain-text bond glyph (the reference `Bond#ascii`) — the
+    /// HTML renderer's bond output and the text canonical form.
+    pub(crate) fn ascii(&self) -> &'static str {
         match self.kind.as_str() {
             "double" => "=",
             "triple" => "#",
@@ -254,6 +263,17 @@ impl Reaction {
         "Reaction".to_string()
     }
 
+    /// The arrow's Unicode glyph (the reference `Reaction#arrow_entity`,
+    /// the MathML/HTML entity form).
+    pub(crate) fn arrow_entity(&self) -> &'static str {
+        match self.arrow.as_str() {
+            "reverse" => "\u{2190}",
+            "equilibrium" => "\u{21CC}",
+            "resonance" => "\u{2194}",
+            _ => "\u{2192}",
+        }
+    }
+
     fn render_arrow(&self) -> String {
         let mut out = self.arrow_ascii().to_string();
         if let Some(conds) = &self.conditions {
@@ -311,6 +331,65 @@ pub struct Mechanism {
     pub spectators: Vec<String>,
 }
 
+/// A crystal structure: unit-cell parameters, space group, and the
+/// asymmetric-unit atoms with fractional coordinates. The cell
+/// parameters carry the authored strings (the reference's model keeps
+/// the raw captures too); the wire form casts them to numbers.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Crystal {
+    pub name: Option<String>,
+    pub a: Option<String>,
+    pub b: Option<String>,
+    pub c: Option<String>,
+    pub alpha: Option<String>,
+    pub beta: Option<String>,
+    pub gamma: Option<String>,
+    pub spacegroup: Option<String>,
+    pub atoms: Vec<Atom>,
+}
+
+impl Crystal {
+    /// The six cell parameters in canonical iteration order, paired
+    /// with their text labels — the single source of truth for "which
+    /// cell fields are set and in what order" (the reference's
+    /// `each_cell_param`); formatters consult this instead of inlining
+    /// their own field lists.
+    pub fn cell_params(&self) -> Vec<(&'static str, &str)> {
+        [
+            ("a", &self.a),
+            ("b", &self.b),
+            ("c", &self.c),
+            ("alpha", &self.alpha),
+            ("beta", &self.beta),
+            ("gamma", &self.gamma),
+        ]
+        .into_iter()
+        .filter_map(|(label, value)| value.as_deref().map(|value| (label, value)))
+        .collect()
+    }
+
+    /// Per-format label overrides for the angle names: MathML, HTML
+    /// and LaTeX spell the Greek letters (the reference's
+    /// `CELL_LABELS`); text spells them out. `None` = the plain name.
+    pub fn greek_label(label: &str, format: &str) -> String {
+        match (label, format) {
+            ("alpha", "mathml" | "html") => "α".to_string(),
+            ("beta", "mathml" | "html") => "β".to_string(),
+            ("gamma", "mathml" | "html") => "γ".to_string(),
+            ("alpha", "latex") => "\\alpha".to_string(),
+            ("beta", "latex") => "\\beta".to_string(),
+            ("gamma", "latex") => "\\gamma".to_string(),
+            _ => label.to_string(),
+        }
+    }
+
+    /// Human-readable label for linter diagnostics ("Crystal(NaCl)";
+    /// "unnamed" when no name is authored).
+    pub fn diagnostic_label(&self) -> String {
+        format!("Crystal({})", self.name.as_deref().unwrap_or("unnamed"))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Node {
     Atom(Atom),
@@ -321,6 +400,7 @@ pub enum Node {
     ReactionCascade(ReactionCascade),
     ElectronConfiguration(ElectronConfiguration),
     Mechanism(Mechanism),
+    Crystal(Crystal),
     EmbeddedMath(String),
     Text(String),
 }
@@ -369,6 +449,7 @@ impl Node {
             Node::Mechanism(mechanism) => {
                 format!("Mechanism({} steps)", mechanism.steps.len())
             }
+            Node::Crystal(crystal) => crystal.diagnostic_label(),
             Node::EmbeddedMath(_) => "Embedded Math".to_string(),
             Node::Text(_) => "Text".to_string(),
         }
@@ -381,6 +462,71 @@ fn render_terms(nodes: &[Node]) -> String {
         .map(|n| n.to_string())
         .collect::<Vec<_>>()
         .join(" + ")
+}
+
+/// The canonical text form of one atom — the reference Text
+/// formatter's `visit_atom` plus its annotation tail. Shared by the
+/// Node Display and the crystal body (whose atoms render through the
+/// same text rule).
+fn atom_text(atom: &Atom) -> String {
+    let mut parts: Vec<String> = vec![];
+    if let Some(lp) = atom.lone_pairs {
+        parts.push(":".repeat(lp as usize));
+    }
+    if let Some(iso) = &atom.isotope {
+        parts.push(format!("^{iso}"));
+    }
+    parts.push(atom.element.clone());
+    if let Some(sub) = &atom.subscript {
+        parts.push(format!("_{sub}"));
+    }
+    if let Some(sup) = &atom.superscript {
+        parts.push(format!("^{sup}"));
+    }
+    if let Some(chg) = &atom.charge {
+        parts.push(format!("^{chg}"));
+    }
+    if let Some(ox) = &atom.oxidation_state {
+        parts.push(format!("^({ox})"));
+    }
+    if let Some(re_) = atom.radical_electrons {
+        parts.push(".".repeat(re_ as usize));
+    }
+    if let Some(rc) = &atom.ring_closures {
+        parts.push(rc.clone());
+    }
+    if let Some(ch) = &atom.chirality {
+        parts.push(format!("@{ch}"));
+    }
+    if let (Some(x), Some(y), Some(z)) = (atom.x_fract, atom.y_fract, atom.z_fract) {
+        parts.push(format!(
+            "@f({},{},{})",
+            format_coord(x),
+            format_coord(y),
+            format_coord(z)
+        ));
+    }
+    parts.concat()
+}
+
+/// Coordinate text: integral values drop the decimal (the reference's
+/// `format_coord` — 0.0 renders "0", 0.5 renders "0.5").
+fn format_coord(value: f64) -> String {
+    if value.fract() == 0.0 {
+        format!("{}", value.trunc() as i64)
+    } else {
+        format!("{value}")
+    }
+}
+
+/// Float text in the reference's `Float#to_s` shape: integral values
+/// keep one decimal (2.0 renders "2.0", 0.5 renders "0.5").
+pub(crate) fn format_float(value: f64) -> String {
+    if value.fract() == 0.0 {
+        format!("{value:.1}")
+    } else {
+        format!("{value}")
+    }
 }
 
 fn render_molecule_annotations(mol: &Molecule) -> String {
@@ -416,38 +562,7 @@ fn render_molecule_annotations(mol: &Molecule) -> String {
 impl fmt::Display for Node {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Node::Atom(atom) => {
-                let mut parts: Vec<String> = vec![];
-                if let Some(lp) = atom.lone_pairs {
-                    parts.push(":".repeat(lp as usize));
-                }
-                if let Some(iso) = &atom.isotope {
-                    parts.push(format!("^{iso}"));
-                }
-                parts.push(atom.element.clone());
-                if let Some(sub) = &atom.subscript {
-                    parts.push(format!("_{sub}"));
-                }
-                if let Some(sup) = &atom.superscript {
-                    parts.push(format!("^{sup}"));
-                }
-                if let Some(chg) = &atom.charge {
-                    parts.push(format!("^{chg}"));
-                }
-                if let Some(ox) = &atom.oxidation_state {
-                    parts.push(format!("^({ox})"));
-                }
-                if let Some(re_) = atom.radical_electrons {
-                    parts.push(".".repeat(re_ as usize));
-                }
-                if let Some(rc) = &atom.ring_closures {
-                    parts.push(rc.clone());
-                }
-                if let Some(ch) = &atom.chirality {
-                    parts.push(format!("@{ch}"));
-                }
-                write!(f, "{}", parts.concat())
-            }
+            Node::Atom(atom) => write!(f, "{}", atom_text(atom)),
             Node::Bond(bond) => {
                 if let Some(direction) = &bond.direction {
                     return write!(f, "{}", if direction == "up" { "/" } else { "\\" });
@@ -519,6 +634,28 @@ impl fmt::Display for Node {
                         lines.push(format!("spectator: {sp}"));
                     }
                     out.push_str(&format!("{{\n  {}\n}}", lines.join("\n  ")));
+                }
+                write!(f, "{out}")
+            }
+            Node::Crystal(crystal) => {
+                let mut out = String::from("crystal");
+                if let Some(name) = &crystal.name {
+                    out.push_str(&format!("[{name}]"));
+                }
+                let mut params: Vec<String> = crystal
+                    .cell_params()
+                    .into_iter()
+                    .map(|(label, value)| format!("{label}={value}"))
+                    .collect();
+                if let Some(sg) = &crystal.spacegroup {
+                    params.push(format!("sg={sg}"));
+                }
+                if !params.is_empty() {
+                    out.push_str(&format!("({})", params.join(",")));
+                }
+                if !crystal.atoms.is_empty() {
+                    let atoms: Vec<String> = crystal.atoms.iter().map(atom_text).collect();
+                    out.push_str(&format!("{{{}}}", atoms.join(" ")));
                 }
                 write!(f, "{out}")
             }
