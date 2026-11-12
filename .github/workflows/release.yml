@@ -40,6 +40,11 @@ jobs:
   release-plz:
     name: Release-plz
     runs-on: ubuntu-latest
+    env:
+      # The leptris engine — the citation layer links it at build
+      # time, and release-plz's publish verification builds the full
+      # dependency graph. The same bootstrap and the same pin as CI.
+      LEPTRIS_REF: v1.9.418
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -48,6 +53,29 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Checkout the leptris engine
+        uses: actions/checkout@v7
+        with:
+          repository: leptris/leptris
+          ref: ${{ env.LEPTRIS_REF }}
+          path: .leptris-engine
+      - name: Build libleptris (shared)
+        run: |
+          cmake -B .leptris-engine/build-shared -S .leptris-engine \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLEPTRIS_BUILD_SHARED=ON -DLEPTRIS_BUILD_STATIC=OFF \
+            -DBUILD_TESTING=OFF -DLEPTRIS_BUILD_CLI=OFF \
+            -DLEPTRIS_BUILD_BENCHMARKS=OFF \
+            -DLEPTRIS_ENABLE_UTF8PROC=OFF
+          cmake --build .leptris-engine/build-shared --config Release -j4
+          LIB=$(find .leptris-engine/build-shared -name 'libleptris.so' | head -1)
+          if [ -z "$LIB" ]; then
+            echo "ERROR: libleptris shared library not found"
+            exit 1
+          fi
+          LIBDIR=$(cd "$(dirname "$LIB")" && pwd)
+          echo "LEPTRIS_LIB_PATH=$LIBDIR" >> "$GITHUB_ENV"
 
       - name: Run release-plz
         uses: MarcoIeni/release-plz-action@v0.5
