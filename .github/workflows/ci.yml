@@ -10,6 +10,10 @@ env:
   # one line deliberately with each corpus release (the tag carries
   # what changed).
   CORPUS_REF: v0.8.0
+  # The identity oracle corpus (chemomer/inchi-tests) — the same pin
+  # chemomer's own CI gates the engine at; the identity family must
+  # never drift from the engine it consumes.
+  CHEMOMER_CORPUS_REF: v0.3.41
 
 jobs:
   test:
@@ -24,9 +28,23 @@ jobs:
           path: .asciichem-tests
       - name: Point the suite at the corpus
         run: echo "ASCIICHEM_CORPUS=$(pwd)/.asciichem-tests/corpus/fixtures" >> "$GITHUB_ENV"
+      - name: Clone identity oracle corpus (chemomer/inchi-tests)
+        uses: actions/checkout@v7
+        with:
+          repository: chemomer/inchi-tests
+          ref: ${{ env.CHEMOMER_CORPUS_REF }}
+          path: .inchi-tests
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
+      # The identity oracle gate runs the FULL recorded family
+      # (identity*.json, every case byte-exact through the in-process
+      # dependency). Release profile only: canonical ranking is
+      # debug-bound (~9 min in debug, ~40 s here), and the debug
+      # `cargo test` above must not pay that cost.
+      - run: cargo test --release --test identity_corpus
+        env:
+          CHEMOMER_CORPUS: ${{ github.workspace }}/.inchi-tests/corpus/fixtures
