@@ -14,9 +14,12 @@
 //! (`model`) built from them (`build`), with the canonical text
 //! renderer on the model, the MathML renderer (`mathml`) byte-exact
 //! against the corpus goldens, and the canonical wire JSON (`wire`)
-//! field-for-field with the shared v1 schemas. Constructs outside the
-//! subset report `Unsupported` rather than guessing; SVG follows in a
-//! later slice.
+//! field-for-field with the shared v1 schemas. The structure
+//! interchange layer (`structure`, `smiles`, `perception`) ingests and
+//! emits SMILES with the shared perception semantics (implicit
+//! hydrogens, Hückel aromatic rings, stereo carry-through), gated by
+//! the corpus's SMILES and perception families. Constructs outside the
+//! subset report `Unsupported` rather than guessing.
 
 use std::sync::OnceLock;
 
