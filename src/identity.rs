@@ -14,9 +14,12 @@
 //! molfile emission is the pipe; the writer here is PRIVATE to the
 //! identity path and minimal (V2000, no coordinates — InChI never
 //! reads them). The full molfile interchange (read/write as a public
-//! format) is TODO.v2/09's slice 2, which replaces this writer.
+//! format) is TODO.v2/09's slice 2, which replaces this writer. The
+//! graph build is the shared strict [`crate::structure`] walk — no
+//! second walker.
 
-use crate::model::{self, Node};
+use crate::model;
+use crate::structure::{self, Edge};
 
 /// The derived identity of a structure: the standard InChI string,
 /// its AuxInfo line, and the InChIKey.
@@ -45,127 +48,11 @@ pub fn derive_from_molfile(molfile: &str) -> chemomer::Result<Identity> {
 /// Derives the identity of a model molecule: model → V2000 molfile →
 /// engine. The molfile emission is the pipe, exactly as the Ruby
 /// `NativeEngine#identity` (`Molfile.write(molecule, layout: false)`).
+/// The identity pipe speaks one error type (the Ruby engine's single
+/// `AsciiChem::Error` shape), so the strict build's rejection maps
+/// onto it.
 pub fn derive(molecule: &model::Molecule) -> chemomer::Result<Identity> {
     derive_from_molfile(&write_v2000(molecule)?)
-}
-
-/// One modelled bond in the built graph, with array indices into the
-/// atom list.
-struct Edge {
-    from: usize,
-    to: usize,
-    kind: String,
-}
-
-/// Model molecule → neutral graph: bond tokens between consecutive
-/// atoms become edges (pending-bond semantics, shared across group and
-/// nested-molecule recursion — the same walk the Ruby
-/// `Structure::Graph` runs); ring-closure digits become edges through
-/// the ported `RingBonds` pairing.
-///
-/// Strict on purpose, exactly as the Ruby `build!`: text adjacency —
-/// atoms with no bond token between them (`CCO`) — is formula
-/// notation, not a bond, and mixing it with explicit bonds silently
-/// fragments the graph, so the build declines when adjacency is
-/// present and the final graph is disconnected. The identity of a
-/// fragmented molecule is silently WRONG, which is worse than a
-/// rejection.
-struct GraphBuilder {
-    atoms: Vec<model::Atom>,
-    edges: Vec<Edge>,
-    adjacency_pairs: Vec<(usize, usize)>,
-    pending: Option<model::Bond>,
-    last: Option<usize>,
-}
-
-impl GraphBuilder {
-    fn new() -> Self {
-        GraphBuilder {
-            atoms: Vec::new(),
-            edges: Vec::new(),
-            adjacency_pairs: Vec::new(),
-            pending: None,
-            last: None,
-        }
-    }
-
-    fn walk_nodes(&mut self, nodes: &[Node]) {
-        for node in nodes {
-            match node {
-                Node::Atom(atom) => self.push_atom(atom),
-                Node::Bond(bond) => self.pending = Some(bond.clone()),
-                Node::Group(group) => self.walk_nodes(&group.nodes),
-                Node::Molecule(inner) => self.walk_nodes(&inner.nodes),
-                _ => {}
-            }
-        }
-    }
-
-    fn push_atom(&mut self, atom: &model::Atom) {
-        let index = self.atoms.len();
-        self.atoms.push(atom.clone());
-        match (self.last, self.pending.take()) {
-            (Some(last), Some(bond)) => self.edges.push(Edge {
-                from: last,
-                to: index,
-                kind: bond.kind.clone(),
-            }),
-            (Some(last), None) => self.adjacency_pairs.push((last, index)),
-            _ => {}
-        }
-        self.last = Some(index);
-    }
-}
-
-fn build_graph(molecule: &model::Molecule) -> chemomer::Result<(Vec<model::Atom>, Vec<Edge>)> {
-    let mut builder = GraphBuilder::new();
-    builder.walk_nodes(&molecule.nodes);
-    for ring in crate::layout::ring_bonds(&builder.atoms) {
-        builder.edges.push(Edge {
-            from: ring.from_atom,
-            to: ring.to_atom,
-            // Ring-closure digits carry no kind; the default bond rule
-            // applies (the Ruby rule speaks aromatic only between
-            // aromatic-FLAGGED atoms — a field the SMILES parser sets
-            // and the ASCII text never does; the Rust model subset
-            // carries no aromatic flag yet, so the closure crosses as
-            // the default single — the same verdict the Ruby writer
-            // reaches for ASCII input).
-            kind: "single".to_string(),
-        });
-    }
-    if !builder.adjacency_pairs.is_empty() && !connected(builder.atoms.len(), &builder.edges) {
-        return Err(chemomer::Error::new(
-            "adjacent atoms have no explicit bond token — a formula is not a structure. \
-             Write explicit bonds (C-C) or ingest the structure from SMILES/molfile.",
-        ));
-    }
-    Ok((builder.atoms, builder.edges))
-}
-
-/// Breadth-first reachability from atom 0 — the Ruby `connected?`.
-fn connected(atom_count: usize, edges: &[Edge]) -> bool {
-    if atom_count <= 1 {
-        return true;
-    }
-    let mut neighbours: Vec<Vec<usize>> = vec![Vec::new(); atom_count];
-    for edge in edges {
-        neighbours[edge.from].push(edge.to);
-        neighbours[edge.to].push(edge.from);
-    }
-    let mut seen = vec![false; atom_count];
-    seen[0] = true;
-    let mut queue = std::collections::VecDeque::from([0usize]);
-    while let Some(current) = queue.pop_front() {
-        for &next in &neighbours[current] {
-            if seen[next] {
-                continue;
-            }
-            seen[next] = true;
-            queue.push_back(next);
-        }
-    }
-    seen.into_iter().all(|visited| visited)
 }
 
 /// The model's number-then-sign charge ("2+", "-") → signed integer —
@@ -220,6 +107,13 @@ fn chirality_parity(atom: &model::Atom) -> i32 {
     }
 }
 
+/// The MDL H-count code: 0 default, 1 H0, 2 H1, 3 H2, ... — so a
+/// stated count n crosses as n + 1 (the Ruby `hcount_code`). Absent
+/// means "per valence rules" and crosses 0.
+fn hcount_code(atom: &model::Atom) -> i32 {
+    atom.hydrogens.map_or(0, |count| count as i32 + 1)
+}
+
 /// One wedge per chiral atom, on its first bond, oriented
 /// centre → neighbour: TH1 rises (stereo 1), TH2 falls (6). Returns
 /// { edge index → (from, to, stereo) } — the Ruby `wedge_bonds`.
@@ -272,8 +166,12 @@ fn property_line(prefix: &str, pairs: &[(i32, i32)]) -> Option<String> {
 /// byte-for-byte; coordinates are all zero (the `layout: false` call
 /// the Ruby identity seam makes — InChI never reads coordinates, and
 /// tetrahedral stereo crosses through the wedge bonds, not geometry).
+/// The graph build is the shared strict walk
+/// ([`structure::build_graph_strict`]) — the identity of a fragmented
+/// molecule is silently WRONG, which is worse than a rejection.
 fn write_v2000(molecule: &model::Molecule) -> chemomer::Result<String> {
-    let (atoms, edges) = build_graph(molecule)?;
+    let (atoms, edges) = structure::build_graph_strict(molecule)
+        .map_err(|error| chemomer::Error::new(error.message))?;
     if edges.is_empty() && atoms.len() > 1 {
         return Err(chemomer::Error::new(
             "molecule has no bonds — a formula is not a structure",
@@ -293,9 +191,6 @@ fn write_v2000(molecule: &model::Molecule) -> chemomer::Result<String> {
 
     let wedges = wedge_bonds(&atoms, &edges);
     for atom in &atoms {
-        // The H-count field stays 0: the model subset carries no
-        // explicit hydrogen counts yet (the Ruby writer crosses a
-        // stated count as MDL code n + 1).
         lines.push(format!(
             "{:10.4}{:10.4}{:10.4} {:<3} 0  0{:3}{:3}  0  0  0  0  0  0  0  0  0",
             0.0,
@@ -303,7 +198,7 @@ fn write_v2000(molecule: &model::Molecule) -> chemomer::Result<String> {
             0.0,
             atom.element,
             chirality_parity(atom),
-            0,
+            hcount_code(atom),
         ));
     }
 
@@ -355,9 +250,18 @@ fn write_v2000(molecule: &model::Molecule) -> chemomer::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::Node;
 
     fn molecule(input: &str) -> model::Molecule {
         let nodes = crate::parse_nodes(input).expect("input parses");
+        match nodes.first() {
+            Some(Node::Molecule(mol)) => mol.clone(),
+            other => panic!("not a molecule: {other:?}"),
+        }
+    }
+
+    fn smiles_molecule(smiles: &str) -> model::Molecule {
+        let nodes = crate::smiles::parse_smiles(smiles).expect("SMILES parses");
         match nodes.first() {
             Some(Node::Molecule(mol)) => mol.clone(),
             other => panic!("not a molecule: {other:?}"),
@@ -377,16 +281,28 @@ mod tests {
     }
 
     #[test]
-    fn acetic_acid_walks_the_branches_and_the_double_bond() {
+    fn acetic_acid_derives_from_smiles_like_the_ruby_seam_spec() {
+        // The Ruby NativeEngine spec's exact gate: acetic acid in from
+        // SMILES, the recorded identity out. The SMILES parser bonds
+        // every continuation (branches reconnect through ring-closure
+        // digits), so the strict build accepts what ASCII branch input
+        // cannot express.
+        let identity = derive(&smiles_molecule("CC(=O)O")).expect("identity derives");
+        assert_eq!(identity.inchi, "InChI=1S/C2H4O2/c1-2(3)4/h1H3,(H,3,4)");
+        assert_eq!(identity.inchikey, "QTBSBXVTEAMEQO-UHFFFAOYSA-N");
+    }
+
+    #[test]
+    fn ascii_branch_input_fragments_exactly_as_the_ruby_reference() {
         // ASCII branch groups carry a leading bond token; the walk's
         // pending-bond semantics chain them linearly — EXACTLY as the
         // Ruby reference's Structure::Graph does (verified against the
         // gem: atoms C,H,H,H,C,O,O with the same edges). Branched
-        // structures are SMILES/molfile-ingested in Ruby; ASCII branch
-        // input fragments the same way on both sides — a known gap
-        // slice 2's interchange owns. The gate pins the PARITY so a
-        // silent divergence can never ship.
-        let (atoms, edges) = build_graph(&molecule("C(-H)(-H)(-H)-C(=O)-O")).expect("builds");
+        // structures are SMILES/molfile-ingested; ASCII branch input
+        // fragments the same way on both sides. The gate pins the
+        // PARITY so a silent divergence can never ship.
+        let (atoms, edges) =
+            structure::build_graph_strict(&molecule("C(-H)(-H)(-H)-C(=O)-O")).expect("builds");
         assert_eq!(
             atoms.iter().map(|a| a.element.as_str()).collect::<Vec<_>>(),
             ["C", "H", "H", "H", "C", "O", "O"]
@@ -413,6 +329,16 @@ mod tests {
         let identity = identity("C1=C-C=C-C=C1");
         assert_eq!(identity.inchi, "InChI=1S/C6H6/c1-2-4-6-5-3-1/h1-6H");
         assert_eq!(identity.inchikey, "UHOVQNZJYSORNB-UHFFFAOYSA-N");
+    }
+
+    #[test]
+    fn aromatic_rings_cross_as_aromatic_bond_codes() {
+        // SMILES lowercase input flags the atoms aromatic; the ring
+        // closure then speaks the aromatic kind and the writer crosses
+        // it as the V2000 aromatic bond code 4. The identifier is the
+        // same benzene Kekulé either way — the oracle normalizes.
+        let identity = derive(&smiles_molecule("c1ccccc1")).expect("identity derives");
+        assert_eq!(identity.inchi, "InChI=1S/C6H6/c1-2-4-6-5-3-1/h1-6H");
     }
 
     #[test]
@@ -470,7 +396,9 @@ mod tests {
     #[test]
     fn formula_adjacency_with_bonds_is_declined() {
         // `CCO` with one explicit bond: adjacency fragments the graph
-        // (C-C bonded pair + lone O), so the strict build declines.
+        // (C-C bonded pair + lone O), so the strict build declines —
+        // the Ruby `build!` contract, now in the shared
+        // `structure::build_graph_strict`.
         let error = derive(&molecule("CC-O")).expect_err("declined");
         assert!(error.message().contains("no explicit bond token"));
     }

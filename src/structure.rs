@@ -6,6 +6,9 @@
 //!   the layout walker, plus ring-closure edges (aromatic between
 //!   aromatic atoms — the same default rule the SMILES parser
 //!   applies).
+//! - [`build_graph_strict`] is the structure-writers' build (the Ruby
+//!   `build!`): it declines formula-style adjacency instead of
+//!   silently fragmenting the graph.
 //! - [`linearize`] turns the adjacency back into linear model nodes:
 //!   bond tokens for consecutive edges, ring-closure digits for the
 //!   rest, with interval-aware digit reuse (digits pair by occurrence
@@ -36,8 +39,62 @@ impl Edge {
 /// kind and E/Z direction); nested groups and molecules contribute
 /// their walk order; ring closures pair by digit occurrence order.
 pub fn build_graph(molecule: &Molecule) -> (Vec<Atom>, Vec<Edge>) {
+    let (atoms, edges, _) = build_graph_with_adjacency(molecule);
+    (atoms, edges)
+}
+
+/// The structure-writers' strict build — the Ruby `Structure.Graph.build!`.
+/// Text adjacency — atoms with no bond token between them (`CCO`, the
+/// undashed spacers in `C1=CC=CC=C1`) — is formula notation, not a
+/// bond; mixing it with explicit bonds silently fragments the graph
+/// (a benzene ring written as a disconnected C4+C2 pair), so the
+/// strict build declines when adjacency is present and the final graph
+/// is disconnected. SMILES models never trip this (their parser always
+/// bonds every continuation — branch reconnection crosses as a
+/// ring-closure digit), and an explicit multi-component model (a salt
+/// written `A.B`) has no adjacency at all.
+pub fn build_graph_strict(molecule: &Molecule) -> Result<(Vec<Atom>, Vec<Edge>), ParseError> {
+    let (atoms, edges, adjacency_pairs) = build_graph_with_adjacency(molecule);
+    if !adjacency_pairs.is_empty() && !connected(atoms.len(), &edges) {
+        return Err(ParseError {
+            message: "adjacent atoms have no explicit bond token — a formula \
+                      is not a structure. Write explicit bonds (C-C) or ingest \
+                      the structure from SMILES/molfile."
+                .into(),
+        });
+    }
+    Ok((atoms, edges))
+}
+
+/// Breadth-first reachability from atom 0 — the Ruby `connected?`.
+fn connected(atom_count: usize, edges: &[Edge]) -> bool {
+    if atom_count <= 1 {
+        return true;
+    }
+    let mut neighbours: Vec<Vec<usize>> = vec![Vec::new(); atom_count];
+    for edge in edges {
+        neighbours[edge.from].push(edge.to);
+        neighbours[edge.to].push(edge.from);
+    }
+    let mut seen = vec![false; atom_count];
+    seen[0] = true;
+    let mut queue = std::collections::VecDeque::from([0usize]);
+    while let Some(current) = queue.pop_front() {
+        for &next in &neighbours[current] {
+            if seen[next] {
+                continue;
+            }
+            seen[next] = true;
+            queue.push_back(next);
+        }
+    }
+    seen.into_iter().all(|visited| visited)
+}
+
+fn build_graph_with_adjacency(molecule: &Molecule) -> (Vec<Atom>, Vec<Edge>, Vec<(usize, usize)>) {
     let mut atoms: Vec<Atom> = Vec::new();
     let mut edges: Vec<Edge> = Vec::new();
+    let mut adjacency_pairs: Vec<(usize, usize)> = Vec::new();
     let mut pending: Option<Bond> = None;
     let mut last: Option<usize> = None;
 
@@ -45,6 +102,7 @@ pub fn build_graph(molecule: &Molecule) -> (Vec<Atom>, Vec<Edge>) {
         node: &Node,
         atoms: &mut Vec<Atom>,
         edges: &mut Vec<Edge>,
+        adjacency_pairs: &mut Vec<(usize, usize)>,
         pending: &mut Option<Bond>,
         last: &mut Option<usize>,
     ) {
@@ -52,25 +110,27 @@ pub fn build_graph(molecule: &Molecule) -> (Vec<Atom>, Vec<Edge>) {
             Node::Atom(atom) => {
                 let index = atoms.len();
                 atoms.push(atom.clone());
-                if let (Some(bond), Some(from)) = (pending.take(), *last) {
-                    edges.push(Edge {
+                match (pending.take(), *last) {
+                    (Some(bond), Some(from)) => edges.push(Edge {
                         from,
                         to: index,
                         kind: bond.kind.clone(),
                         direction: bond.direction.clone(),
-                    });
+                    }),
+                    (None, Some(from)) => adjacency_pairs.push((from, index)),
+                    _ => {}
                 }
                 *last = Some(index);
             }
             Node::Bond(bond) => *pending = Some(bond.clone()),
             Node::Group(group) => {
                 for child in &group.nodes {
-                    walk(child, atoms, edges, pending, last);
+                    walk(child, atoms, edges, adjacency_pairs, pending, last);
                 }
             }
             Node::Molecule(mol) => {
                 for child in &mol.nodes {
-                    walk(child, atoms, edges, pending, last);
+                    walk(child, atoms, edges, adjacency_pairs, pending, last);
                 }
             }
             _ => {}
@@ -78,7 +138,14 @@ pub fn build_graph(molecule: &Molecule) -> (Vec<Atom>, Vec<Edge>) {
     }
 
     for node in &molecule.nodes {
-        walk(node, &mut atoms, &mut edges, &mut pending, &mut last);
+        walk(
+            node,
+            &mut atoms,
+            &mut edges,
+            &mut adjacency_pairs,
+            &mut pending,
+            &mut last,
+        );
     }
 
     // Ring-closure pairing by digit occurrence order (the same
@@ -99,7 +166,7 @@ pub fn build_graph(molecule: &Molecule) -> (Vec<Atom>, Vec<Edge>) {
         });
     }
 
-    (atoms, edges)
+    (atoms, edges, adjacency_pairs)
 }
 
 /// Adjacency → linear model nodes: a bond token before each atom that
