@@ -351,6 +351,74 @@ fn perception_contract() {
 // parse cycle with the same graph (the runner contract's shape
 // equality, sorted edges). Stereo codes 1/6 ride the same gate.
 
+// -- CML round-trip (TODO.v2 17 slice 7) --------------------------------
+// The corpus's cml family gates the three-way contract: parse ->
+// to_cml -> parse_cml -> canonical text, byte-identical to the input.
+// Both XML directions ride the linked leptris engine.
+
+#[test]
+fn cml_three_way_round_trip_contract() {
+    let Some(cases) = load_keyed_cases("cmlRoundTrip") else {
+        eprintln!("corpus not cloned as a sibling (or set ASCIICHEM_CORPUS); skipping");
+        return;
+    };
+    assert!(
+        cases.len() >= 20,
+        "expected the cml round-trip family, got {} cases",
+        cases.len()
+    );
+
+    let mut round_trips = 0;
+    let mut failures = Vec::new();
+    for case in &cases {
+        let id = case_id(case);
+        let input = case
+            .get("input")
+            .and_then(|value| value.as_str())
+            .expect("cml case input");
+        let nodes = match asciichem::parse_nodes(input) {
+            Ok(nodes) => nodes,
+            Err(error) => {
+                failures.push(format!("{id}: model parse failed: {error}"));
+                continue;
+            }
+        };
+        let xml = match asciichem::cml::to_cml(&nodes) {
+            Ok(xml) => xml,
+            Err(error) => {
+                failures.push(format!("{id}: CML emit failed: {error}"));
+                continue;
+            }
+        };
+        let back = match asciichem::cml::parse_cml(&xml) {
+            Ok(back) => back,
+            Err(error) => {
+                failures.push(format!("{id}: CML read failed: {error}\n  xml: {xml}"));
+                continue;
+            }
+        };
+        let text = back
+            .iter()
+            .map(|node| node.to_string())
+            .collect::<Vec<_>>()
+            .join(" ");
+        if text == input {
+            round_trips += 1;
+        } else {
+            failures.push(format!(
+                "{id}: three-way round-trip mismatch\n  in: {input:?}\n out: {text:?}"
+            ));
+        }
+    }
+    assert!(round_trips > 0, "expected cml round-trip passes; got none");
+    assert!(
+        failures.is_empty(),
+        "{} cml mismatch(es):\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
+
 fn edge_shape(edges: &[asciichem::structure::Edge]) -> Vec<(usize, usize, String)> {
     let mut shape: Vec<(usize, usize, String)> = edges
         .iter()
