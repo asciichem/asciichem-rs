@@ -144,3 +144,203 @@ fn holds_no_state_between_parses() {
     assert!(asciichem::parse("H_2O").is_ok());
     assert_eq!(asciichem::parse_to_text("H_2O").unwrap(), "H_2O");
 }
+
+// -- structure interchange (TODO.v2 09) + perception (item 2) ---------
+// The corpus's SMILES and perception families gate the shared
+// structure semantics: parse/reject, the deterministic writer (exact
+// round trip and canonical aromatic form), and the perception pass
+// (implicit hydrogens + Hückel aromatic rings, null = declines).
+
+fn load_keyed_cases(key: &str) -> Option<Vec<serde_json::Value>> {
+    let dir = corpus_dir()?;
+    let mut cases = Vec::new();
+    for entry in fs::read_dir(&dir).expect("read corpus dir") {
+        let path = entry.expect("dir entry").path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+            continue;
+        }
+        let text = fs::read_to_string(&path).expect("read fixture file");
+        let parsed: Vec<serde_json::Value> =
+            serde_json::from_str(&text).expect("valid fixture JSON");
+        for case in parsed {
+            if case.get(key).is_some() {
+                cases.push(case);
+            }
+        }
+    }
+    Some(cases)
+}
+
+fn case_id(case: &serde_json::Value) -> String {
+    case.get("id")
+        .and_then(|value| value.as_str())
+        .unwrap_or("<unnamed>")
+        .to_string()
+}
+
+#[test]
+fn smiles_ingestion_contract() {
+    let Some(cases) = load_keyed_cases("smiles") else {
+        eprintln!("corpus not cloned as a sibling (or set ASCIICHEM_CORPUS); skipping");
+        return;
+    };
+    assert!(
+        cases.len() >= 40,
+        "expected the SMILES family, got {} cases",
+        cases.len()
+    );
+
+    let mut failures = Vec::new();
+    for case in &cases {
+        let id = case_id(case);
+        let smiles = case
+            .get("smiles")
+            .and_then(|value| value.as_str())
+            .expect("smiles string");
+        let parses = case
+            .get("parses")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        match asciichem::smiles::parse_smiles(smiles) {
+            Ok(nodes) => {
+                if !parses {
+                    failures.push(format!("{id}: expected reject, parsed {smiles:?}"));
+                    continue;
+                }
+                let written = asciichem::smiles::write_smiles(&nodes);
+                let round_trip = case
+                    .get("smilesRoundTrip")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false);
+                if round_trip {
+                    match &written {
+                        Ok(output) if output == smiles => {}
+                        Ok(output) => failures.push(format!(
+                            "{id}: round-trip mismatch\n  in: {smiles:?}\n out: {output:?}"
+                        )),
+                        Err(error) => failures.push(format!("{id}: write failed: {error}")),
+                    }
+                }
+                if let Some(canonical) = case.get("canonicalSmiles").and_then(|v| v.as_str()) {
+                    match &written {
+                        Ok(output) if output == canonical => {}
+                        Ok(output) => failures.push(format!(
+                            "{id}: canonical mismatch\n  expected: {canonical:?}\n  got: {output:?}"
+                        )),
+                        Err(error) => failures.push(format!("{id}: write failed: {error}")),
+                    }
+                }
+            }
+            Err(error) => {
+                if parses {
+                    failures.push(format!("{id}: expected parse, rejected: {error}"));
+                }
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} SMILES mismatch(es):\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
+
+#[test]
+fn perception_contract() {
+    let Some(cases) = load_keyed_cases("perception") else {
+        eprintln!("corpus not cloned as a sibling (or set ASCIICHEM_CORPUS); skipping");
+        return;
+    };
+    assert!(
+        cases.len() >= 14,
+        "expected the perception family, got {} cases",
+        cases.len()
+    );
+
+    let mut failures = Vec::new();
+    for case in &cases {
+        let id = case_id(case);
+        let smiles = case
+            .get("smiles")
+            .and_then(|value| value.as_str())
+            .expect("smiles string");
+        let expected = case.get("perception").expect("perception object");
+
+        let nodes = asciichem::smiles::parse_smiles(smiles)
+            .unwrap_or_else(|error| panic!("{id}: fixture SMILES must parse: {error}"));
+        let molecule = match nodes.first() {
+            Some(asciichem::model::Node::Molecule(molecule)) => molecule,
+            other => panic!("{id}: expected a molecule node, got {other:?}"),
+        };
+        let (atoms, edges) = asciichem::structure::build_graph(molecule);
+
+        let hydrogens: Vec<Option<u32>> = atoms
+            .iter()
+            .enumerate()
+            .map(|(index, atom)| {
+                asciichem::perception::implicit_hydrogens(
+                    atom,
+                    asciichem::perception::hydrogen_valence_sum(index, &edges),
+                )
+            })
+            .collect();
+        let hydrogens_json = serde_json::Value::Array(
+            hydrogens
+                .iter()
+                .map(|h| match h {
+                    Some(count) => serde_json::Value::Number((*count).into()),
+                    None => serde_json::Value::Null,
+                })
+                .collect(),
+        );
+        if &hydrogens_json
+            != expected
+                .get("implicitHydrogens")
+                .expect("implicitHydrogens")
+        {
+            failures.push(format!(
+                "{id}: implicit hydrogens mismatch\n  expected: {}\n  got: {}",
+                expected
+                    .get("implicitHydrogens")
+                    .expect("implicitHydrogens"),
+                hydrogens_json
+            ));
+        }
+
+        let mut rings: Vec<Vec<usize>> = asciichem::perception::aromatic_rings(&atoms, &edges)
+            .iter()
+            .map(|ring| {
+                let mut ring = ring.clone();
+                ring.sort_unstable();
+                ring
+            })
+            .collect();
+        rings.sort();
+        let rings_json = serde_json::Value::Array(
+            rings
+                .iter()
+                .map(|ring| {
+                    serde_json::Value::Array(
+                        ring.iter()
+                            .map(|i| serde_json::Value::Number((*i).into()))
+                            .collect(),
+                    )
+                })
+                .collect(),
+        );
+        if &rings_json != expected.get("aromaticRings").expect("aromaticRings") {
+            failures.push(format!(
+                "{id}: aromatic rings mismatch\n  expected: {}\n  got: {}",
+                expected.get("aromaticRings").expect("aromaticRings"),
+                rings_json
+            ));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} perception mismatch(es):\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}

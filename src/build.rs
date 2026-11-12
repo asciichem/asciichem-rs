@@ -208,6 +208,11 @@ fn build_atom(value: &Value) -> Result<Node> {
         lone_pairs: lewis_count(hash.get("lone_pairs")),
         radical_electrons: lewis_count(hash.get("radical_electrons")),
         ring_closures: strip_value(hash.get("ring_closures")),
+        // Aromatic flags and stated hydrogens are structure-interchange
+        // fields (SMILES lowercase atoms, bracket `[nH]`); the AsciiChem
+        // text grammar does not capture them.
+        aromatic: None,
+        hydrogens: None,
         chirality: str_of(hash.get("chirality")),
     }))
 }
