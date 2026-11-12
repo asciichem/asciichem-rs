@@ -7,6 +7,7 @@ license = "BSD-2-Clause"
 repository = "https://github.com/asciichem/asciichem-rs"
 
 [dependencies]
+chemomer = "0.1.0"
 parsanol = "0.18.9"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
