@@ -70,10 +70,6 @@ jobs:
           cmake --build .leptris-engine/build-shared --config Release -j
           LIB=$(find .leptris-engine/build-shared -type f -o -type l 2>/dev/null \
             | grep -iE '(lib)?leptris\.(dylib|so)$' | head -1)
-            -DLEPTRIS_ENABLE_UTF8PROC=ON
-          cmake --build .leptris-engine/build-shared --config Release -j4
-          LIB=$(find .leptris-engine/build-shared -type f -o -type l 2>/dev/null \
-            | grep -iE '(lib)?leptris\.(dylib|so)$' | head -1)
           if [ -z "$LIB" ]; then
             echo "ERROR: libleptris shared library not found"
             exit 1
