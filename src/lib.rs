@@ -24,6 +24,7 @@
 use std::sync::OnceLock;
 
 pub mod build;
+pub mod identity;
 pub mod layout;
 pub mod mathml;
 pub mod model;
