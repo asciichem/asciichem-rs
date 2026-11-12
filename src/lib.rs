@@ -27,10 +27,16 @@
 //! format/consistency, and the identity cross-check through the same
 //! in-process engine. Constructs outside the subset report
 //! `Unsupported` rather than guessing.
+//!
+//! The CML round-trip ([`crate::cml`]) carries the model through the
+//! canonical CML wire with the aci: extension channels (atom
+//! attributes, top-level elements, molecule groups), parsed and
+//! serialized entirely by the linked leptris engine.
 
 use std::sync::OnceLock;
 
 pub mod build;
+pub mod cml;
 pub mod identifiers;
 pub mod identity;
 pub mod layout;
