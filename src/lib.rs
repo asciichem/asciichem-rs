@@ -85,45 +85,92 @@ pub fn grammar() -> Result<&'static Grammar, ParseError> {
 /// virtually, committed only as used.
 const PARSE_STACK_BYTES: usize = 64 * 1024 * 1024;
 
-/// Parses AsciiChem text and renders the canonical text form:
-/// `parse_to_text(s) == s` for canonical `s` (the round-trip
-/// contract). Constructs outside the model subset raise
-/// `ParseError::Unsupported` — reported as such, never guessed.
+/// A persistent parse worker: one thread with the deep stack, spawned
+/// once, reused for every parse. Spawning a fresh 64 MiB-reserved
+/// thread per call cost ~300 µs — two orders of magnitude above the
+/// parse itself.
+mod worker {
+    use super::ParseError;
+    use std::sync::mpsc::{channel, Sender};
+    use std::sync::OnceLock;
+
+    type Job = Box<dyn FnOnce() + Send>;
+
+    fn worker() -> &'static Sender<Job> {
+        static SENDER: OnceLock<Sender<Job>> = OnceLock::new();
+        SENDER.get_or_init(|| {
+            let (sender, receiver) = channel::<Job>();
+            std::thread::Builder::new()
+                .name("asciichem-parse".into())
+                .stack_size(super::PARSE_STACK_BYTES)
+                .spawn(move || {
+                    while let Ok(job) = receiver.recv() {
+                        job();
+                    }
+                })
+                .expect("spawn persistent parser thread");
+            sender
+        })
+    }
+
+    /// Runs `f` on the deep-stack worker thread, returning its result.
+    pub fn run<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
+        let (result_tx, result_rx) = channel();
+        worker()
+            .send(Box::new(move || {
+                result_tx.send(f()).ok();
+            }))
+            .expect("parser worker alive");
+        result_rx.recv().expect("parser worker returned a result")
+    }
+
+    /// Convenience for parse results: mirrors the caller's error type.
+    pub fn parse<T: Send + 'static>(
+        f: impl FnOnce() -> Result<T, ParseError> + Send + 'static,
+    ) -> Result<T, ParseError> {
+        run(f)
+    }
+}
+
 /// Parses AsciiChem text into the model subset's formula nodes —
 /// the shared front half of every renderer.
+/// Inputs at or below this length parse on the CALLER's stack: PEG
+/// recursion depth is bounded by input length, so a short input
+/// cannot exhaust a default 8 MB stack — and skipping the deep-stack
+/// worker hop is worth ~200 µs per parse. Longer inputs go to the
+/// worker (the corpus fuzz cases genuinely need the 64 MiB stack).
+const INLINE_PARSE_MAX: usize = 16 * 1024;
+
 pub fn parse_nodes(input: &str) -> Result<Vec<model::Node>, ParseError> {
-    let source = input.trim().to_string();
-    std::thread::scope(|scope| {
-        std::thread::Builder::new()
-            .name("asciichem-parse".into())
-            .stack_size(PARSE_STACK_BYTES)
-            .spawn_scoped(scope, || {
-                let value = parse_value(&source)?;
-                build::build_formula(&value).map_err(|error| ParseError {
-                    message: error.to_string(),
-                })
-            })
-            .expect("spawn parser thread")
-            .join()
-            .expect("parser thread panicked")
+    let source = input.trim();
+    if source.len() <= INLINE_PARSE_MAX {
+        return parse_nodes_direct(source);
+    }
+    let owned = source.to_string();
+    worker::parse(move || parse_nodes_direct(&owned))
+}
+
+/// The parse itself — runs ON the deep-stack worker. Internal: never
+/// call from inside another worker job (the worker is single-threaded;
+/// nesting self-deadlocks).
+fn parse_nodes_direct(source: &str) -> Result<Vec<model::Node>, ParseError> {
+    let value = parse_value(source)?;
+    build::build_formula(&value).map_err(|error| ParseError {
+        message: error.to_string(),
     })
 }
 
 pub fn parse_to_text(input: &str) -> Result<String, ParseError> {
-    let source = input.trim().to_string();
-    std::thread::scope(|scope| {
-        std::thread::Builder::new()
-            .name("asciichem-parse".into())
-            .stack_size(PARSE_STACK_BYTES)
-            .spawn_scoped(scope, || parse_to_text_inner(&source))
-            .expect("spawn parser thread")
-            .join()
-            .expect("parser thread panicked")
-    })
+    let source = input.trim();
+    if source.len() <= INLINE_PARSE_MAX {
+        return parse_to_text_inner(source);
+    }
+    let owned = source.to_string();
+    worker::parse(move || parse_to_text_inner(&owned))
 }
 
 fn parse_to_text_inner(source: &str) -> Result<String, ParseError> {
-    let nodes = parse_nodes(source)?;
+    let nodes = parse_nodes_direct(source)?;
     let rendered: Vec<String> = nodes.iter().map(|n| n.to_string()).collect();
     Ok(rendered.join(" "))
 }
@@ -186,3 +233,5 @@ fn parse_inner(source: &str) -> Result<(), ParseError> {
     }
     Ok(())
 }
+
+
