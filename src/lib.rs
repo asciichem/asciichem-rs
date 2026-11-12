@@ -45,8 +45,8 @@
 use std::sync::OnceLock;
 
 pub mod build;
-pub mod cml;
 pub mod citation;
+pub mod cml;
 pub mod identifiers;
 pub mod identity;
 pub mod layout;
