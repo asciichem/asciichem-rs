@@ -658,3 +658,66 @@ pub fn from_model_json(json: &str) -> Result<Vec<Node>> {
         )),
     }
 }
+
+// -- identity wire: substance-record (TODO.v2 07; the resolver's
+//    canonical wire form, field-for-field with the shared v1 schema) --
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ProvenanceTag {
+    #[serde(rename = "provenance")]
+    Provenance,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SubstanceRecordTag {
+    #[serde(rename = "substance-record")]
+    SubstanceRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Provenance {
+    #[serde(rename = "type")]
+    pub tag: ProvenanceTag,
+    pub source: String,
+    #[serde(rename = "retrievedAt", skip_serializing_if = "Option::is_none")]
+    pub retrieved_at: Option<String>,
+    #[serde(rename = "sourceVersion", skip_serializing_if = "Option::is_none")]
+    pub source_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attribution: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProvenancedIdentifier {
+    pub identifier: Identifier,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<Provenance>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProvenancedProperty {
+    pub name: String,
+    pub value: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub units: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<Provenance>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SubstanceRecord {
+    #[serde(rename = "type")]
+    pub tag: SubstanceRecordTag,
+    #[serde(rename = "preferredName", skip_serializing_if = "Option::is_none")]
+    pub preferred_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub synonyms: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub formula: Option<String>,
+    #[serde(rename = "molecularWeight", skip_serializing_if = "Option::is_none")]
+    pub molecular_weight: Option<f64>,
+    #[serde(default)]
+    pub identifiers: Vec<ProvenancedIdentifier>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub properties: Vec<ProvenancedProperty>,
+}
