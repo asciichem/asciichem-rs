@@ -20,4 +20,10 @@ ureq = "2.12"
 # Digest::SHA256 (pure Rust, no transport baggage).
 sha2 = "0.10"
 
+
 [dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "parse"
+harness = false
