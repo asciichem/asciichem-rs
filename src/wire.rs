@@ -524,6 +524,11 @@ pub fn node_from_wire(wire: &WireNode) -> Result<Node> {
             aromatic: atom.aromatic,
             hydrogens: atom.hydrogens,
             chirality: atom.chirality.clone(),
+            // Coordinates are model-only render data; the wire form
+            // carries none.
+            x2: None,
+            y2: None,
+            z2: None,
         }),
         WireNode::Bond(bond) => Node::Bond(model::Bond {
             kind: bond.kind.clone(),

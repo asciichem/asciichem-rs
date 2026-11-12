@@ -214,6 +214,9 @@ fn build_atom(value: &Value) -> Result<Node> {
         aromatic: None,
         hydrogens: None,
         chirality: str_of(hash.get("chirality")),
+        x2: None,
+        y2: None,
+        z2: None,
     }))
 }
 
