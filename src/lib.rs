@@ -13,7 +13,9 @@
 //! transform into the DSL shapes (`value`), a typed model subset
 //! (`model`) built from them (`build`), with the canonical text
 //! renderer on the model, the MathML renderer (`mathml`) byte-exact
-//! against the corpus L2 goldens, and the canonical wire JSON (`wire`)
+//! against the corpus L2 goldens, the inline HTML renderer (`html`)
+//! and the mhchem LaTeX renderer (`latex`) matching the reference's
+//! formatter output, and the canonical wire JSON (`wire`)
 //! field-for-field with the shared v1 schemas. The structure
 //! interchange layer (`structure`, `smiles`, `molfile`, `perception`)
 //! ingests and emits SMILES and molfile V2000 with the shared
@@ -51,8 +53,10 @@ pub mod build;
 pub mod citation;
 pub mod cli;
 pub mod cml;
+pub mod html;
 pub mod identifiers;
 pub mod identity;
+pub mod latex;
 pub mod layout;
 pub mod linter;
 pub mod mathml;

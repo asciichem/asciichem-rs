@@ -14,9 +14,8 @@
 //! 4, identity errors 5, parsing-engine selection 6; `lint` exits 1
 //! on error-severity findings, `roundtrip` 1 on a mismatch,
 //! `validate` 1 on a known-but-invalid identifier. Documented
-//! deviations (no html/latex renderers in the core yet, version and
-//! help text wording, `--engine` accepting only parsanol) live in the
-//! command handlers and the PR.
+//! deviations (version and help text wording, `--engine` accepting
+//! only parsanol) live in the command handlers and the PR.
 
 use std::fs;
 use std::io::Write;
@@ -35,7 +34,7 @@ use crate::resolver::cache::Cache;
 use crate::resolver::{Registry, ResolverError};
 use crate::smiles;
 use crate::wire;
-use crate::{identity, mathml, svg, ParseError};
+use crate::{html, identity, latex, mathml, svg, ParseError};
 
 /// The conventions with an offline validator (the reference
 /// `Identifiers` registry's keys) — "known" in `validate`'s status
@@ -450,14 +449,8 @@ fn render(nodes: &[Node], format: &str) -> Result<String, Failure> {
             };
             molfile::write_molfile(molecule, "").map_err(parse_family)
         }
-        // The Ruby CLI ships html/latex renderers; the Rust core does
-        // not yet — an unknown or unshipped formatter is the format
-        // family (exit 2), the reference's `unknown formatter` shape.
-        "html" | "latex" => Err(failure(
-            2,
-            "Format error: ",
-            format!("unknown formatter :{format}: the Rust core ships no {format} renderer"),
-        )),
+        "html" => html::render_formula(nodes).map_err(parse_family),
+        "latex" => latex::render_formula(nodes).map_err(parse_family),
         other => Err(failure(
             2,
             "Format error: ",
