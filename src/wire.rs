@@ -180,6 +180,10 @@ pub struct Atom {
     #[serde(rename = "ringClosures", skip_serializing_if = "Option::is_none")]
     pub ring_closures: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub aromatic: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hydrogens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub chirality: Option<String>,
 }
 
@@ -340,6 +344,8 @@ fn node_to_wire(node: &Node) -> Result<WireNode> {
             lone_pairs: atom.lone_pairs,
             radical_electrons: atom.radical_electrons,
             ring_closures: atom.ring_closures.clone(),
+            aromatic: atom.aromatic,
+            hydrogens: atom.hydrogens,
             chirality: atom.chirality.clone(),
         }),
         Node::Bond(bond) => WireNode::Bond(Bond {
@@ -515,6 +521,8 @@ pub fn node_from_wire(wire: &WireNode) -> Result<Node> {
             lone_pairs: atom.lone_pairs,
             radical_electrons: atom.radical_electrons,
             ring_closures: atom.ring_closures.clone(),
+            aromatic: atom.aromatic,
+            hydrogens: atom.hydrogens,
             chirality: atom.chirality.clone(),
         }),
         WireNode::Bond(bond) => Node::Bond(model::Bond {

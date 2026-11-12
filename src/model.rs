@@ -5,7 +5,7 @@
 
 use std::fmt;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Atom {
     pub element: String,
     pub isotope: Option<String>,
@@ -18,6 +18,13 @@ pub struct Atom {
     pub lone_pairs: Option<u32>,
     pub radical_electrons: Option<u32>,
     pub ring_closures: Option<String>,
+    /// Aromatic atom flag, set by SMILES lowercase input (`c1ccccc1`)
+    /// or molfile aromatic contexts. Absent means not aromatic.
+    pub aromatic: Option<bool>,
+    /// Hydrogen count as stated by the source (SMILES bracket atoms
+    /// `[CH4]`/`[nH]`). Absent means "per valence rules" — never
+    /// invented.
+    pub hydrogens: Option<u32>,
     pub chirality: Option<String>,
 }
 
