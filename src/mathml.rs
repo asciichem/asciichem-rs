@@ -22,15 +22,18 @@ pub fn render(input: &str) -> Result<String, crate::ParseError> {
     })
 }
 
-fn render_inner(source: &str) -> Result<String, crate::ParseError> {
-    let nodes = crate::parse_nodes(source)?;
+/// Renders presentation MathML for already-built nodes — the
+/// grammar-independent seam (`convert --from smiles|molfile`): SMILES
+/// and molfile ingestion produce the same model, so the same MathML
+/// renderer serves every input grammar.
+pub fn render_formula(nodes: &[Node]) -> Result<String, crate::ParseError> {
     let mut math = Element::new("math");
     math.attrs.push((
         "xmlns".to_string(),
         "http://www.w3.org/1998/Math/MathML".to_string(),
     ));
     let mut mrow = Element::new("mrow");
-    for node in &nodes {
+    for node in nodes {
         mrow.children
             .push(render_node(node).map_err(|error| crate::ParseError {
                 message: error.to_string(),
@@ -38,6 +41,10 @@ fn render_inner(source: &str) -> Result<String, crate::ParseError> {
     }
     math.children.push(Node_::Element(mrow));
     Ok(compact_empty(&math.serialize()))
+}
+
+fn render_inner(source: &str) -> Result<String, crate::ParseError> {
+    render_formula(&crate::parse_nodes(source)?)
 }
 
 enum Node_ {

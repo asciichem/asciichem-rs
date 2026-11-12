@@ -41,11 +41,15 @@
 //! ([`crate::resolver::Substance`]) into the dataset-type Relaton
 //! bibitem XML — one per (substance, source), built and serialized
 //! through the leptris engine, byte-exact with the Ruby emission.
+//! The CLI ([`crate::cli`]) drives all of it from the `asciichem`
+//! binary — the eleven commands the Ruby CLI ships, one dispatch, the
+//! contract (stdout shapes + exit codes) testable offline.
 
 use std::sync::OnceLock;
 
 pub mod build;
 pub mod citation;
+pub mod cli;
 pub mod cml;
 pub mod identifiers;
 pub mod identity;

@@ -11,7 +11,22 @@ chemomer = "0.1.0"
 leptris = "1.6.19"
 parsanol = "0.18.9"
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.154"
+# preserve_order: the lint command's JSON payload spells its keys in
+# the reference's order (severity, message, node) — struct
+# serialization is declaration-ordered either way; this is for the
+# json! maps the CLI builds.
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
+# The CLI's argument parsing (TODO.v2/17 slice 8; clap 4 — the vetted
+# default, maintainer veto point). Default features off: colors off
+# keeps stdout/stderr byte-stable for the contract goldens.
+clap = { version = "4", default-features = false, features = [
+    "std",
+    "derive",
+    "help",
+    "usage",
+    "error-context",
+    "suggestions",
+] }
 # The resolver's HTTP transport (TODO.v2/17 slice 5; the maintainer-vetted
 # dependency — the core engines' zero-dependency policy does not extend to
 # network I/O, that is the resolver's job). TLS rides rustls, ureq's default.

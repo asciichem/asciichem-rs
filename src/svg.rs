@@ -24,13 +24,21 @@ pub fn render(input: &str) -> Result<String, crate::ParseError> {
 /// Parses AsciiChem text and renders the linear (typographic) SVG.
 pub fn render_linear(input: &str) -> Result<String, crate::ParseError> {
     let nodes = crate::parse_nodes(input)?;
-    let lines: Vec<Vec<Segment>> = nodes.iter().map(segments_for_node).collect();
-    Ok(linear_document(&lines))
+    Ok(render_linear_formula(&nodes))
 }
 
-// -- structural -------------------------------------------------------
+/// The linear (typographic) SVG for already-built nodes — the
+/// grammar-independent seam (see [`render_formula`]).
+pub fn render_linear_formula(nodes: &[Node]) -> String {
+    let lines: Vec<Vec<Segment>> = nodes.iter().map(segments_for_node).collect();
+    linear_document(&lines)
+}
 
-fn render_formula(nodes: &[Node]) -> String {
+/// Renders the structural SVG document for already-built nodes — the
+/// grammar-independent seam (`convert --from smiles|molfile`): SMILES
+/// and molfile ingestion produce the same model, so the same SVG
+/// renderers serve every input grammar.
+pub fn render_formula(nodes: &[Node]) -> String {
     let children: Vec<String> = nodes
         .iter()
         .map(|node| match node {
