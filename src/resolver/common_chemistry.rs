@@ -114,6 +114,7 @@ impl Adapter for CommonChemistry {
         value: &str,
         _convention: &str,
         fetch: &dyn Fetch,
+        now: Option<&str>,
     ) -> Result<Option<Substance>, ResolverError> {
         let mut headers: Vec<(&str, &str)> =
             vec![("Accept", "application/json"), ("x-origin", ORIGIN)];
@@ -130,7 +131,7 @@ impl Adapter for CommonChemistry {
         if !data.is_object() || data.as_object().is_none_or(|object| object.is_empty()) {
             return Ok(None);
         }
-        Ok(substance_from(self, &data))
+        Ok(substance_from(self, &data, now))
     }
 }
 
@@ -144,8 +145,12 @@ fn json_scalar(value: Option<&serde_json::Value>) -> Option<String> {
     }
 }
 
-fn substance_from(adapter: &CommonChemistry, data: &serde_json::Value) -> Option<Substance> {
-    let provenance = adapter.default_provenance();
+fn substance_from(
+    adapter: &CommonChemistry,
+    data: &serde_json::Value,
+    now: Option<&str>,
+) -> Option<Substance> {
+    let provenance = adapter.default_provenance(now);
     let mut identifiers = vec![Identifier {
         value: json_scalar(data.get("rn"))?,
         convention: "cas".to_string(),
@@ -245,6 +250,7 @@ mod tests {
                 },
                 &temp_cache("cc"),
                 false,
+                None,
             )
             .expect("resolves")
             .expect("answers");
@@ -267,6 +273,7 @@ mod tests {
                 },
                 &temp_cache("cc-attrib"),
                 false,
+                None,
             )
             .expect("resolves")
             .expect("answers");
@@ -297,6 +304,7 @@ mod tests {
                 },
                 &temp_cache("cc-struct"),
                 false,
+                None,
             )
             .expect("resolves")
             .expect("answers");
@@ -311,7 +319,14 @@ mod tests {
     fn queries_the_direct_api_detail_endpoint_by_cas_rn() {
         let capture = CaptureFetch::new();
         CommonChemistry::keyless()
-            .resolve("50-78-2", "cas", &capture, &temp_cache("cc-url"), false)
+            .resolve(
+                "50-78-2",
+                "cas",
+                &capture,
+                &temp_cache("cc-url"),
+                false,
+                None,
+            )
             .expect("not-found is not an error");
         let url = capture.calls().pop().expect("requested").url;
         assert!(url.contains("/direct-api/detail?cas_rn=50-78-2"), "{url}");
@@ -322,7 +337,14 @@ mod tests {
     fn sends_the_x_origin_and_accept_headers_on_every_request() {
         let capture = CaptureFetch::new();
         CommonChemistry::keyless()
-            .resolve("50-78-2", "cas", &capture, &temp_cache("cc-headers"), false)
+            .resolve(
+                "50-78-2",
+                "cas",
+                &capture,
+                &temp_cache("cc-headers"),
+                false,
+                None,
+            )
             .expect("not-found is not an error");
         let headers = capture.calls().pop().expect("requested").headers;
         let header = |name: &str| {
@@ -339,7 +361,14 @@ mod tests {
     fn sends_a_user_provided_key_as_the_x_api_key_header() {
         let capture = CaptureFetch::new();
         CommonChemistry::with_key("cas-key-123")
-            .resolve("50-78-2", "cas", &capture, &temp_cache("cc-key"), false)
+            .resolve(
+                "50-78-2",
+                "cas",
+                &capture,
+                &temp_cache("cc-key"),
+                false,
+                None,
+            )
             .expect("not-found is not an error");
         let headers = capture.calls().pop().expect("requested").headers;
         assert!(
@@ -352,7 +381,14 @@ mod tests {
     fn sends_no_x_api_key_without_a_key() {
         let capture = CaptureFetch::new();
         CommonChemistry::keyless()
-            .resolve("50-78-2", "cas", &capture, &temp_cache("cc-nokey"), false)
+            .resolve(
+                "50-78-2",
+                "cas",
+                &capture,
+                &temp_cache("cc-nokey"),
+                false,
+                None,
+            )
             .expect("not-found is not an error");
         let headers = capture.calls().pop().expect("requested").headers;
         assert!(

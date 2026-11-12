@@ -698,6 +698,8 @@ fn cmd_resolve(args: &ResolveArgs, deps: &Deps<'_>, out: &mut dyn Write) -> Resu
             deps.fetch,
             deps.cache,
             args.refresh,
+            // The live CLI path stamps the system clock.
+            None,
         )
         .map_err(|error| failure(3, prefix, error))?
         .ok_or_else(|| {
@@ -749,6 +751,7 @@ fn cmd_cite(args: &CiteArgs, deps: &Deps<'_>, out: &mut dyn Write) -> Result<(),
             deps.fetch,
             deps.cache,
             args.refresh,
+            None,
         )
         .map_err(|error| failure(4, prefix, error))?
         .ok_or_else(|| {

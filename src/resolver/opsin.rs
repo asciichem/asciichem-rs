@@ -42,6 +42,7 @@ impl Adapter for Opsin {
         value: &str,
         _convention: &str,
         fetch: &dyn Fetch,
+        now: Option<&str>,
     ) -> Result<Option<Substance>, ResolverError> {
         let url = format!("{BASE}/{}.smiles", cgi_escape(value));
         let body = fetch
@@ -50,15 +51,15 @@ impl Adapter for Opsin {
         let Some(body) = body else {
             return Ok(None);
         };
-        Ok(substance_from(self, body.trim()))
+        Ok(substance_from(self, body.trim(), now))
     }
 }
 
-fn substance_from(adapter: &Opsin, smiles: &str) -> Option<Substance> {
+fn substance_from(adapter: &Opsin, smiles: &str, now: Option<&str>) -> Option<Substance> {
     if smiles.is_empty() {
         return None;
     }
-    let provenance = adapter.default_provenance();
+    let provenance = adapter.default_provenance(now);
     Some(Substance {
         preferred_name: None,
         synonyms: Vec::new(),
@@ -94,6 +95,7 @@ mod tests {
                 },
                 &temp_cache("opsin"),
                 false,
+                None,
             )
             .expect("resolves")
     }

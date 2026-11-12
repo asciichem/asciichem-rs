@@ -74,6 +74,7 @@ impl Adapter for FixtureSource {
         _value: &str,
         _convention: &str,
         _fetch: &dyn Fetch,
+        _now: Option<&str>,
     ) -> Result<Option<Substance>, ResolverError> {
         let payload: serde_json::Value = serde_json::from_str(&self.body)
             .map_err(|error| ResolverError::Source(error.to_string()))?;
@@ -136,6 +137,7 @@ impl Adapter for FailingSource {
         _value: &str,
         _convention: &str,
         _fetch: &dyn Fetch,
+        _now: Option<&str>,
     ) -> Result<Option<Substance>, ResolverError> {
         Err(ResolverError::Source("HTTP 401: Unauthorized".to_string()))
     }
@@ -181,6 +183,7 @@ fn resolves_via_the_first_answering_source_by_default() {
             },
             &temp_cache("first"),
             false,
+            None,
         )
         .expect("resolves")
         .expect("answers");
@@ -210,6 +213,7 @@ fn returns_one_substance_per_answering_source() {
             },
             &temp_cache("fanout"),
             false,
+            None,
         )
         .expect("resolves");
     // Membership, not a closed world: every registered adapter
@@ -249,6 +253,7 @@ fn skips_a_source_level_failure_instead_of_poisoning_the_fan_out() {
             },
             &temp_cache("isolate"),
             false,
+            None,
         )
         .expect("the failure isolates")
         .expect("answers");
@@ -280,6 +285,7 @@ fn raises_conflict_when_sources_disagree_on_the_inchikey() {
             },
             &temp_cache("conflict"),
             false,
+            None,
         )
         .expect_err("the disagreement raises");
     match error {
@@ -312,6 +318,7 @@ fn agrees_when_sources_cross_check_clean() {
             },
             &temp_cache("crosscheck"),
             false,
+            None,
         )
         .expect("agreement passes")
         .expect("answers");
@@ -335,6 +342,7 @@ fn caches_resolution_results_in_the_user_cache_dir_and_serves_them_offline() {
             },
             &cache,
             false,
+            None,
         )
         .expect("resolves")
         .expect("answers");
@@ -345,7 +353,7 @@ fn caches_resolution_results_in_the_user_cache_dir_and_serves_them_offline() {
     assert!(cache.dir().exists(), "the cache dir came up");
 
     let cached = registry
-        .resolve("aspirin", "name", None, &OfflineFetch, &cache, false)
+        .resolve("aspirin", "name", None, &OfflineFetch, &cache, false, None)
         .expect("served offline")
         .expect("cache answers");
     assert_eq!(
@@ -363,6 +371,7 @@ fn caches_resolution_results_in_the_user_cache_dir_and_serves_them_offline() {
             },
             &cache,
             true,
+            None,
         )
         .expect("refreshes")
         .expect("answers");
@@ -382,6 +391,7 @@ fn serializes_substance_records_to_the_canonical_wire_form() {
             },
             &temp_cache("wire"),
             false,
+            None,
         )
         .expect("resolves")
         .expect("answers");
@@ -409,6 +419,7 @@ fn round_trips_a_substance_through_the_wire_form_the_cache_path() {
             },
             &temp_cache("roundtrip"),
             false,
+            None,
         )
         .expect("resolves")
         .expect("answers");
@@ -457,6 +468,7 @@ fn sources_limiting_narrows_the_fan_out() {
             &capture,
             &temp_cache("limiting"),
             false,
+            None,
         )
         .expect("resolves");
     assert_eq!(

@@ -164,7 +164,9 @@ impl Registry {
     /// entries dropped). Sources answer in registration order. A
     /// source-level failure skips that source — one dead or key-gated
     /// endpoint must not poison the others; callers see what answered.
-    /// An unknown name in `sources` is an error, not a skip.
+    /// An unknown name in `sources` is an error, not a skip. `now` is
+    /// the injectable clock the records' provenance stamps (`None` =
+    /// the system clock; replayed fixtures pin the instant).
     #[allow(clippy::too_many_arguments)]
     pub fn resolve_all(
         &self,
@@ -174,6 +176,7 @@ impl Registry {
         fetch: &dyn Fetch,
         cache: &Cache,
         refresh: bool,
+        now: Option<&str>,
     ) -> Result<Vec<Substance>, ResolverError> {
         let selected: Vec<Box<dyn Adapter>> = match sources {
             Some(names) => names
@@ -187,7 +190,7 @@ impl Registry {
             if !adapter.supports(convention) {
                 continue;
             }
-            match adapter.resolve(value, convention, fetch, cache, refresh) {
+            match adapter.resolve(value, convention, fetch, cache, refresh, now) {
                 Ok(Some(substance)) => answered.push(substance),
                 Ok(None) => {}
                 // Per-source isolation: a dead or key-gated endpoint
@@ -209,9 +212,10 @@ impl Registry {
         fetch: &dyn Fetch,
         cache: &Cache,
         refresh: bool,
+        now: Option<&str>,
     ) -> Result<Option<Substance>, ResolverError> {
         Ok(self
-            .resolve_all(value, convention, sources, fetch, cache, refresh)?
+            .resolve_all(value, convention, sources, fetch, cache, refresh, now)?
             .into_iter()
             .next())
     }
@@ -228,8 +232,10 @@ impl Registry {
         fetch: &dyn Fetch,
         cache: &Cache,
         refresh: bool,
+        now: Option<&str>,
     ) -> Result<Option<Substance>, ResolverError> {
-        let substances = self.resolve_all(value, convention, sources, fetch, cache, refresh)?;
+        let substances =
+            self.resolve_all(value, convention, sources, fetch, cache, refresh, now)?;
         let mut keys: Vec<&str> = Vec::new();
         for substance in &substances {
             if let Some(key) = substance.identifier_value("inchikey") {

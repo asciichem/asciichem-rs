@@ -9,7 +9,7 @@ env:
   # Hermetic CI: the corpus ref is pinned, never floating. Bump this
   # one line deliberately with each corpus release (the tag carries
   # what changed).
-  CORPUS_REF: v0.8.0
+  CORPUS_REF: v0.11.0
   # The identity oracle corpus (chemomer/inchi-tests) — the same pin
   # chemomer's own CI gates the engine at; the identity family must
   # never drift from the engine it consumes.
