@@ -32,6 +32,10 @@
 //! Common Chemistry — TTL-cached in the user cache dir, provenance-
 //! stamped with each source's required attribution, per-source
 //! isolated, and serialized through the wire substance-record form.
+//! The mechanism step graph ([`crate::mechanism_graph`]) derives what
+//! the verbatim `mechanism{}` entries imply — each step's reaction
+//! re-parsed with the same grammar, per-step catalysts, and the
+//! step-to-step links a shared product-reactant species makes.
 //! Constructs outside the subset report
 //! `Unsupported` rather than guessing.
 //!
@@ -60,6 +64,7 @@ pub mod latex;
 pub mod layout;
 pub mod linter;
 pub mod mathml;
+pub mod mechanism_graph;
 pub mod model;
 pub mod molfile;
 pub mod perception;
