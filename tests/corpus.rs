@@ -353,6 +353,84 @@ fn perception_contract() {
     );
 }
 
+// -- mechanism family (TODO.v2/13 item 4) --------------------------------
+// The `flows` shape gates the electron-flow markers per step label:
+// the parsed mechanism's steps must map label -> [{source, target}]
+// exactly as the fixture's `flows` object — every step present,
+// flow-less steps carrying an empty list, the arrows in order. The
+// canonical text round trip rides the generic input contract.
+
+#[test]
+fn mechanism_flows_contract() {
+    let Some(cases) = load_family("mechanisms.json") else {
+        eprintln!("corpus not cloned as a sibling (or set ASCIICHEM_CORPUS); skipping");
+        return;
+    };
+    assert!(
+        cases.len() >= 3,
+        "expected the mechanisms family, got {} cases",
+        cases.len()
+    );
+
+    let mut failures = Vec::new();
+    let mut ran = 0;
+    for case in &cases {
+        let id = case_id(case);
+        ran += 1;
+        let input = case
+            .get("input")
+            .and_then(serde_json::Value::as_str)
+            .expect("mechanism case input");
+        let nodes = match asciichem::parse_nodes(input) {
+            Ok(nodes) => nodes,
+            Err(error) => {
+                failures.push(format!("{id}: mechanism parse failed: {error}"));
+                continue;
+            }
+        };
+        let Some(asciichem::model::Node::Mechanism(mechanism)) = nodes.first() else {
+            failures.push(format!(
+                "{id}: expected a mechanism node, got {:?}",
+                nodes.first()
+            ));
+            continue;
+        };
+        let actual = serde_json::Value::Object(
+            mechanism
+                .steps
+                .iter()
+                .map(|step| {
+                    let flows = serde_json::Value::Array(
+                        step.flows
+                            .iter()
+                            .map(|flow| {
+                                serde_json::json!({
+                                    "source": flow.source,
+                                    "target": flow.target,
+                                })
+                            })
+                            .collect(),
+                    );
+                    (step.label.clone(), flows)
+                })
+                .collect(),
+        );
+        let expected = case.get("flows").expect("flows object");
+        if &actual != expected {
+            failures.push(format!(
+                "{id}: flows mismatch\n  expected: {expected}\n  got: {actual}"
+            ));
+        }
+    }
+    eprintln!("mechanisms: {ran} run");
+    assert!(
+        failures.is_empty(),
+        "{} mechanism mismatch(es):\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
+
 // -- molfile interchange (TODO.v2 09, slice 2) --------------------------
 // The corpus's molfile family gates V2000 ingest/emission: parse/reject,
 // atom and bond counts, and — for `molfileRoundTrip` — a parse/write/
