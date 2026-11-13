@@ -528,7 +528,18 @@ fn build_electron_configuration(value: &Value) -> Result<Node> {
 }
 
 fn build_mechanism(value: &Value) -> Result<Node> {
-    let hash = expect_hash(value)?;
+    // The grammar names `mechanism >> body.maybe`: with no body the
+    // capture is the bare literal string — the empty mechanism (the
+    // reference's MechanismBuilder gets a nil body).
+    let hash = match value {
+        Value::Hash(hash) => hash,
+        Value::String(_) => return Ok(Node::Mechanism(Mechanism::default())),
+        other => {
+            return Err(BuildError::Malformed(format!(
+                "expected hash, got {other:?}"
+            )))
+        }
+    };
     let body = strip_value(hash.get("mechanism_body"));
     let mut steps = vec![];
     let mut spectators = vec![];

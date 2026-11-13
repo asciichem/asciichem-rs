@@ -472,9 +472,11 @@ fn segments_for_node(node: &Node) -> Vec<Segment> {
         Node::EmbeddedMath(source) => vec![seg(format!("`{source}`"), 0.0)],
         Node::Text(content) => vec![seg(format!("\"{content}\""), 0.0)],
         Node::Mechanism(_) => {
-            // Linear SVG prints the first line of the canonical text.
-            let text = node.to_string();
-            vec![seg(text.lines().next().unwrap_or_default(), 0.0)]
+            // The reference renders constructs without a natural 2D
+            // form through the canonical text (Formatter.render(:text,
+            // mechanism)) — the full multi-line entry set, as with
+            // crystals.
+            vec![seg(node.to_string(), 0.0)]
         }
         Node::Crystal(_) => {
             // The reference renders constructs without a natural 2D
