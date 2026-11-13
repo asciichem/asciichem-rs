@@ -6,7 +6,7 @@ configurations) parsed into a semantic model.
 
 Fourth implementation in the ecosystem, under the single-contract
 rule: it parses the same syntax defined by
-[asciichem-parg](https://github.com/asciichem/asciichem-parg), builds
+[asciichem-grammar](https://github.com/asciichem/asciichem-grammar), builds
 the same model shape, and must pass the same shared conformance
 corpus ([asciichem-tests](https://github.com/asciichem/asciichem-tests))
 that [asciichem-ruby](https://github.com/asciichem/asciichem-ruby)
