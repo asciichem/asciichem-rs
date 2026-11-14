@@ -77,7 +77,7 @@ const STEREO_LETTERS: [(&str, &str); 10] = [
     ("β", "beta"),
 ];
 
-const IDENTIFIER_TYPES: [&str; 6] = ["inchi", "smiles", "cas", "iupac", "cid", "chebi"];
+const IDENTIFIER_TYPES: [&str; 4] = ["inchi", "smiles", "cas", "chebi"];
 
 pub fn build_formula(value: &Value) -> Result<Vec<Node>> {
     let hash = expect_hash(value)?;
