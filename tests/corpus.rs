@@ -1504,3 +1504,250 @@ fn cli_contract() {
         failures.join("\n")
     );
 }
+
+// -- rinchi family (the reaction-identity oracle) ------------------------
+// Each case carries the recorded input edge (RXNfile or RDfile), the
+// five oracle lines (identifier, RAuxInfo, the three RInChIKey shapes;
+// keys recorded headerless), and the decoded reaction's per-role
+// components in wire order — sourced from the inchi-tests RInChI
+// tranche's recorded bytes. Derive: the input edge assembles the five
+// lines byte-identically (equilibrium cases ride the forced reading —
+// the model API can express it, unlike the string-only transports).
+// Decode: the identifier plus its RAuxInfo companion reads back into
+// the role-resolved components in order, and decode∘derive reproduces
+// the oracle bytes — the components' aux/key content rides the
+// re-assembled lines. The family rides the corpus pin's next move: an
+// absent rinchi.json skips and reports (the pin predates the family),
+// the same visible-gap posture as a fresh clone.
+
+/// Strips a key line's header for the corpus's headerless comparison.
+fn strip_key_header(line: &str, header: &str) -> String {
+    line.strip_prefix(header)
+        .map(str::to_owned)
+        .unwrap_or_else(|| line.to_owned())
+}
+
+#[test]
+fn rinchi_family_contract() {
+    let Some(dir) = corpus_dir() else {
+        eprintln!("corpus not cloned as a sibling (or set ASCIICHEM_CORPUS); skipping");
+        return;
+    };
+    let path = dir.join("rinchi.json");
+    let Ok(text) = fs::read_to_string(&path) else {
+        eprintln!(
+            "rinchi.json not in the corpus pin yet — the family activates at the next pin bump; skipping"
+        );
+        return;
+    };
+    let cases: Vec<serde_json::Value> = serde_json::from_str(&text).expect("valid fixture JSON");
+    assert!(
+        cases.len() >= 36,
+        "expected the rinchi family, got {} cases",
+        cases.len()
+    );
+
+    let mut failures = Vec::new();
+    let mut ran = 0;
+    for case in &cases {
+        let id = case_id(case);
+        let forced = case
+            .get("forceEquilibrium")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+
+        // The derive direction: input edge -> reaction -> the five
+        // oracle lines.
+        let read = if let Some(rxnfile) = case.get("rxnfile").and_then(serde_json::Value::as_str) {
+            asciichem::rinchi::reaction_from_rxnfile(rxnfile)
+        } else if let Some(rdfile) = case.get("rdfile").and_then(serde_json::Value::as_str) {
+            asciichem::rinchi::reaction_from_rdfile(rdfile)
+        } else {
+            failures.push(format!("{id}: no input edge (rxnfile/rdfile)"));
+            continue;
+        };
+        match read {
+            Ok(mut reaction) => {
+                if forced {
+                    reaction.set_directionality(asciichem::rinchi::Directionality::Equilibrium);
+                }
+                match asciichem::rinchi::derive(&reaction) {
+                    Ok(record) => {
+                        ran += 1;
+                        let checks = [
+                            ("rinchi", record.rinchi, case.get("rinchi")),
+                            ("rauxinfo", record.rauxinfo, case.get("rauxinfo")),
+                            (
+                                "rinchikey",
+                                strip_key_header(&record.rinchikey, "Short-RInChIKey="),
+                                case.get("rinchikey"),
+                            ),
+                            (
+                                "longKey",
+                                strip_key_header(&record.long_key, "Long-RInChIKey="),
+                                case.get("longKey"),
+                            ),
+                            (
+                                "webKey",
+                                strip_key_header(&record.web_key, "Web-RInChIKey="),
+                                case.get("webKey"),
+                            ),
+                        ];
+                        for (what, actual, expected) in checks {
+                            let expected = expected
+                                .and_then(serde_json::Value::as_str)
+                                .unwrap_or_default();
+                            if actual != expected {
+                                failures.push(format!(
+                                    "{id}: derive {what}\n  expected: {expected}\n  actual:   {actual}"
+                                ));
+                            }
+                        }
+                    }
+                    Err(error) => failures.push(format!("{id}: derive failed: {error}")),
+                }
+            }
+            Err(error) => failures.push(format!("{id}: input edge read failed: {error}")),
+        }
+
+        // The decode direction: identifier (+ companion) -> roles in
+        // wire order -> the round trip.
+        let rinchi = case
+            .get("rinchi")
+            .and_then(serde_json::Value::as_str)
+            .expect("rinchi line");
+        let rauxinfo = case
+            .get("rauxinfo")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        match asciichem::rinchi::decode_with_auxinfo(rinchi, rauxinfo) {
+            Ok(decoded) => {
+                ran += 1;
+                // The direction flag recovers the real roles for the
+                // directional readings — roles compare in wire order.
+                // An equilibrium recording is symmetric: either group
+                // may output first, so its components compare
+                // order-free (the flag/role identity itself is pinned
+                // by the round trip below).
+                if forced {
+                    let mut expected: Vec<String> = ["reactants", "products", "agents"]
+                        .into_iter()
+                        .flat_map(|role| {
+                            case.get("components")
+                                .and_then(|components| components.get(role))
+                                .and_then(serde_json::Value::as_array)
+                                .map(|list| {
+                                    list.iter()
+                                        .filter_map(serde_json::Value::as_str)
+                                        .map(str::to_owned)
+                                        .collect::<Vec<_>>()
+                                })
+                                .unwrap_or_default()
+                        })
+                        .collect();
+                    expected.sort();
+                    let mut actual: Vec<String> = decoded
+                        .reactants()
+                        .iter()
+                        .chain(decoded.products().iter())
+                        .chain(decoded.agents().iter())
+                        .map(|component| component.inchi_string().expect("component inchi"))
+                        .collect();
+                    actual.sort();
+                    if actual != expected {
+                        failures.push(format!(
+                            "{id}: decoded components\n  expected: {expected:?}\n  actual:   {actual:?}"
+                        ));
+                    }
+                } else {
+                    for (role, components) in [
+                        ("reactants", decoded.reactants()),
+                        ("products", decoded.products()),
+                        ("agents", decoded.agents()),
+                    ] {
+                        let expected: Vec<String> = case
+                            .get("components")
+                            .and_then(|components| components.get(role))
+                            .and_then(serde_json::Value::as_array)
+                            .map(|list| {
+                                list.iter()
+                                    .filter_map(serde_json::Value::as_str)
+                                    .map(str::to_owned)
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        let actual: Vec<String> = components
+                            .iter()
+                            .map(|component| component.inchi_string().expect("component inchi"))
+                            .collect();
+                        if actual != expected {
+                            failures.push(format!(
+                                "{id}: decoded {role}\n  expected: {expected:?}\n  actual:   {actual:?}"
+                            ));
+                        }
+                    }
+                }
+                let expected_directionality = if forced {
+                    asciichem::rinchi::Directionality::Equilibrium
+                } else {
+                    asciichem::rinchi::Directionality::Directional
+                };
+                if decoded.directionality() != expected_directionality {
+                    failures.push(format!(
+                        "{id}: decoded directionality != {:?}",
+                        expected_directionality
+                    ));
+                }
+                // decode∘derive is the identity: the re-assembled
+                // lines carry every component's aux/key content.
+                match asciichem::rinchi::derive(&decoded) {
+                    Ok(record) => {
+                        for (what, actual, expected) in [
+                            ("rinchi", record.rinchi, rinchi.to_owned()),
+                            ("rauxinfo", record.rauxinfo, rauxinfo.to_owned()),
+                            (
+                                "rinchikey",
+                                strip_key_header(&record.rinchikey, "Short-RInChIKey="),
+                                case.get("rinchikey")
+                                    .and_then(serde_json::Value::as_str)
+                                    .unwrap_or_default()
+                                    .to_owned(),
+                            ),
+                            (
+                                "longKey",
+                                strip_key_header(&record.long_key, "Long-RInChIKey="),
+                                case.get("longKey")
+                                    .and_then(serde_json::Value::as_str)
+                                    .unwrap_or_default()
+                                    .to_owned(),
+                            ),
+                            (
+                                "webKey",
+                                strip_key_header(&record.web_key, "Web-RInChIKey="),
+                                case.get("webKey")
+                                    .and_then(serde_json::Value::as_str)
+                                    .unwrap_or_default()
+                                    .to_owned(),
+                            ),
+                        ] {
+                            if actual != expected {
+                                failures.push(format!(
+                                    "{id}: decode re-encodes {what}\n  expected: {expected}\n  actual:   {actual}"
+                                ));
+                            }
+                        }
+                    }
+                    Err(error) => failures.push(format!("{id}: re-assembly failed: {error}")),
+                }
+            }
+            Err(error) => failures.push(format!("{id}: decode failed: {error}")),
+        }
+    }
+    eprintln!("rinchi: {ran} comparisons over {} cases", cases.len());
+    assert!(
+        failures.is_empty(),
+        "{} rinchi mismatch(es):\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}

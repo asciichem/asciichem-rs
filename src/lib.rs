@@ -22,7 +22,11 @@
 //! perception semantics (implicit hydrogens, Hückel aromatic rings,
 //! stereo carry-through), gated by the corpus's SMILES, molfile, and
 //! perception families. The identity layer (`identity`) derives
-//! InChI/AuxInfo/InChIKey in-process through the chemomer dependency.
+//! InChI/AuxInfo/InChIKey in-process through the chemomer dependency,
+//! and the reaction-identity layer (`rinchi`) derives and decodes the
+//! RInChI reaction identifiers through the same engine — RXNfile/RDfile
+//! in, the five oracle lines out, and RInChI strings back into their
+//! components.
 //! The linter ([`crate::linter`]) walks the model and reports
 //! chemistry errors — balance, charge balance, valence, isotope
 //! sanity, element validation, unclosed rings, identifier
@@ -69,6 +73,7 @@ pub mod model;
 pub mod molfile;
 pub mod perception;
 pub mod resolver;
+pub mod rinchi;
 pub mod smiles;
 pub mod structure;
 pub mod svg;
