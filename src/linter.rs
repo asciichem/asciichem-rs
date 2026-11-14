@@ -26,12 +26,12 @@
 //!
 //! Two reference checks have no Rust counterpart YET, by
 //! construction rather than omission: SpectrumPeakCheck and
-//! ZMatrixReferenceCheck validate model node kinds (`Spectrum`,
-//! `ZMatrix`) that the Rust model subset does not carry — the model
-//! build declines those constructs with `Unsupported` upstream, so no
-//! model tree reaching the linter can contain them. They port together
-//! with the model subset expansion (the corpus's linter-coverage
-//! extension, asciichem-tests#19, tracks the fixtures).
+//! ZMatrixReferenceCheck validate semantic properties of `Spectrum`
+//! and `ZMatrix` nodes (peak consistency, reference-row sanity) —
+//! the Rust model now carries the node kinds (the CML-channel wave),
+//! but those property checks are not ported and no corpus fixtures
+//! gate them here yet. They port with the corpus's linter-coverage
+//! extension (asciichem-tests#19 tracks the fixtures).
 //!
 //! The bracket-balance check keeps its registry slot but shrinks to
 //! the one property that can drift over Rust models (an unknown

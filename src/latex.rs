@@ -157,6 +157,17 @@ impl Latex {
                 }
                 Ok(parts.concat())
             }
+            Node::Spectrum(_) | Node::Calculation(_) | Node::ZMatrix(_) => Err(crate::ParseError {
+                message: format!(
+                    "not yet supported in the Rust core: {} rendering \
+                         (the reference's tabular entry)",
+                    match node {
+                        Node::Spectrum(_) => "spectrum",
+                        Node::Calculation(_) => "calculation",
+                        _ => "z-matrix",
+                    }
+                ),
+            }),
             Node::EmbeddedMath(_) => Err(crate::ParseError {
                 message: "not yet supported in the Rust core: embedded math rendering \
                      (Plurimath pipeline)"

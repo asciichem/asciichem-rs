@@ -3,6 +3,8 @@
 //! surfaces. The corpus-level three-way gate lives in `corpus.rs`;
 //! these tests pin the module's own behavior.
 
+use asciichem::model::Node;
+
 fn round_trip(input: &str) -> String {
     let nodes = asciichem::parse_nodes(input).expect("input parses");
     let xml = asciichem::cml::to_cml(&nodes).expect("emits CML");
@@ -56,6 +58,20 @@ fn top_level_channel_round_trips() {
         "\"note: toxic\"",
     ] {
         assert_eq!(round_trip(input), input, "top-level channel: {input}");
+    }
+}
+
+#[test]
+fn construct_channels_round_trip() {
+    // The crystal/spectrum/calculation/z-matrix channels (corpus
+    // 0.11.0): each payload is the construct's canonical text render.
+    for input in [
+        "crystal[NaCl](a=5.64,b=5.64,c=5.64,alpha=90,beta=90,gamma=90,sg=Fm-3m){Na@f(0,0,0) Cl@f(0.5,0.5,0.5)}",
+        "spectrum[1H](solvent=CDCl3){\n  7.26: 1 s \"CHCl3\"\n}",
+        "calc(B3LYP/6-31G*){\n  energy: -76.0 Hartree\n}",
+        "zmatrix{\n  O\n  H  1  0.96\n  H  1  0.96  2  104.5\n}",
+    ] {
+        assert_eq!(round_trip(input), input, "construct channel: {input}");
     }
 }
 
@@ -312,11 +328,98 @@ fn unparseable_channel_content_is_invalid() {
 }
 
 #[test]
-fn conditions_have_no_wire_yet_and_say_so() {
+fn conditions_round_trip_through_the_reaction_channel() {
+    // The conditions ride aci:conditionsAbove/conditionsBelow
+    // attributes on <reaction>; both sides and the cascade restore.
+    for input in [
+        "H_2 + O_2 ->[Fe][400C] H_2O",
+        "A ->[cat: Pd] B",
+        "A ->[c1] B ->[c2] C",
+    ] {
+        assert_eq!(round_trip(input), input, "conditions channel: {input}");
+    }
+}
+
+#[test]
+fn conditions_emit_the_aci_attributes() {
     let nodes = asciichem::parse_nodes("A ->[cat: Pd] B").expect("parses");
-    let error = asciichem::cml::to_cml(&nodes).expect_err("must report, not drop");
+    let xml = asciichem::cml::to_cml(&nodes).expect("emits CML");
     assert!(
-        matches!(error, asciichem::cml::CmlError::Unsupported(_)),
-        "{error:?}"
+        xml.contains("aci:conditionsAbove=\"cat: Pd\""),
+        "above rides the attribute channel: {xml}"
+    );
+    // The namespace declares only when a channel is present.
+    assert!(xml.contains("xmlns:aci"), "aci declared: {xml}");
+}
+
+#[test]
+fn reads_the_native_condition_list() {
+    // The TS runtime's emission: a native <conditionList> with
+    // <scalar title="above|below"> children — the interop read face.
+    let nodes = asciichem::cml::parse_cml(
+        r#"<cml xmlns="http://www.xml-cml.org/schema"><reaction id="r1" type="forward"><reactantList><reactant><substance role="reactant"><molecule id="m1"><atomArray><atom id="a1" elementType="A"/></atomArray></molecule></substance></reactant></reactantList><productList><product><substance role="product"><molecule id="m2"><atomArray><atom id="a2" elementType="B"/></atomArray></molecule></substance></product></productList><conditionList><scalar title="above">Fe</scalar><scalar title="below">400C</scalar></conditionList></reaction></cml>"#,
+    )
+    .expect("reads the native wire");
+    let [node] = nodes.as_slice() else {
+        panic!("expected one node");
+    };
+    let Node::Reaction(reaction) = node else {
+        panic!("expected a reaction");
+    };
+    let conditions = reaction.conditions.as_ref().expect("conditions restored");
+    assert_eq!(conditions.above.as_deref(), Some("Fe"));
+    assert_eq!(conditions.below.as_deref(), Some("400C"));
+}
+
+#[test]
+fn the_native_condition_list_wins_over_the_legacy_attributes() {
+    let nodes = asciichem::cml::parse_cml(
+        r#"<cml xmlns="http://www.xml-cml.org/schema" xmlns:aci="https://asciichem.org/cml-ext"><reaction id="r1" type="forward" aci:conditionsAbove="stale"><reactantList/><productList/><conditionList><scalar title="above">native</scalar></conditionList></reaction></cml>"#,
+    )
+    .expect("reads the wire");
+    let [node] = nodes.as_slice() else {
+        panic!("expected one node");
+    };
+    let Node::Reaction(reaction) = node else {
+        panic!("expected a reaction");
+    };
+    let conditions = reaction.conditions.as_ref().expect("conditions restored");
+    assert_eq!(conditions.above.as_deref(), Some("native"));
+}
+
+#[test]
+fn reads_the_py_condition_attributes() {
+    // The PY runtime's emission for `H_2 + O_2 ->[Fe][400C] H_2O`:
+    // conditions as aci: attributes on the reaction — this module's
+    // own wire shape, pinned here as the interop read face.
+    let xml = r#"<cml xmlns="http://www.xml-cml.org/schema" xmlns:aci="https://asciichem.org/cml-ext"><reaction id="r1" title="forward" type="forward" aci:conditionsAbove="Fe" aci:conditionsBelow="400C"><reactantList><reactant><substance role="reactant"><molecule id="m1"><atomArray><atom id="a1" elementType="H" count="2"/></atomArray></molecule></substance></reactant><reactant><substance role="reactant"><molecule id="m2"><atomArray><atom id="a2" elementType="O" count="2"/></atomArray></molecule></substance></reactant></reactantList><productList><product><substance role="product"><molecule id="m3"><atomArray><atom id="a3" elementType="H" count="2"/><atom id="a4" elementType="O"/></atomArray></molecule></substance></product></productList></reaction></cml>"#;
+    let nodes = asciichem::cml::parse_cml(xml).expect("reads the PY wire");
+    let text = nodes
+        .iter()
+        .map(|node| node.to_string())
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert_eq!(text, "H_2 + O_2 ->[Fe][400C] H_2O");
+}
+
+#[test]
+fn reads_the_peer_construct_channel() {
+    // The TS/PY runtime's emission for the spectrum channel (the two
+    // emit identical bytes here): the canonical text render as the
+    // payload, re-parsed on read.
+    let xml = concat!(
+        r#"<cml xmlns="http://www.xml-cml.org/schema" xmlns:aci="https://asciichem.org/cml-ext">"#,
+        r#"<aci:spectrum position="0">spectrum[1H](solvent=CDCl3){&#10;  7.26: 1 s "CHCl3"&#10;}</aci:spectrum>"#,
+        r#"</cml>"#
+    );
+    let nodes = asciichem::cml::parse_cml(xml).expect("reads the peer wire");
+    let text = nodes
+        .iter()
+        .map(|node| node.to_string())
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert_eq!(
+        text,
+        "spectrum[1H](solvent=CDCl3){\n  7.26: 1 s \"CHCl3\"\n}"
     );
 }

@@ -98,6 +98,24 @@ pub enum CrystalTag {
     Crystal,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SpectrumTag {
+    #[serde(rename = "spectrum")]
+    Spectrum,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CalculationTag {
+    #[serde(rename = "calculation")]
+    Calculation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ZMatrixTag {
+    #[serde(rename = "zmatrix")]
+    ZMatrix,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum WireNode {
@@ -115,6 +133,9 @@ pub enum WireNode {
     Text(Text),
     Mechanism(Mechanism),
     Crystal(Crystal),
+    Spectrum(Spectrum),
+    Calculation(Calculation),
+    ZMatrix(ZMatrix),
 }
 
 impl WireNode {
@@ -134,6 +155,9 @@ impl WireNode {
             WireNode::Text(_) => "text",
             WireNode::Mechanism(_) => "mechanism",
             WireNode::Crystal(_) => "crystal",
+            WireNode::Spectrum(_) => "spectrum",
+            WireNode::Calculation(_) => "calculation",
+            WireNode::ZMatrix(_) => "zmatrix",
         }
     }
 }
@@ -328,6 +352,78 @@ pub struct Crystal {
     pub atoms: Vec<Atom>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SpectrumPeak {
+    pub position: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub intensity: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub multiplicity: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub assignment: Option<String>,
+}
+
+/// The acquisition parameters are the schema's string map; the
+/// ordered JSON map (the crate builds `serde_json` with
+/// `preserve_order`) keeps the authored order the model's pair list
+/// carries.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Spectrum {
+    #[serde(rename = "type")]
+    pub tag: SpectrumTag,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub technique: Option<String>,
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub params: serde_json::Map<String, serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub peaks: Vec<SpectrumPeak>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CalculationProperty {
+    pub title: String,
+    pub value: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub units: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Calculation {
+    #[serde(rename = "type")]
+    pub tag: CalculationTag,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub basis: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub properties: Vec<CalculationProperty>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ZRow {
+    pub atom: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ref1: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub distance: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ref2: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub angle: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ref3: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dihedral: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ZMatrix {
+    #[serde(rename = "type")]
+    pub tag: ZMatrixTag,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rows: Vec<ZRow>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum WireError {
     Unsupported(String),
@@ -401,6 +497,9 @@ fn node_to_wire(node: &Node) -> Result<WireNode> {
         }),
         Node::Mechanism(mech) => WireNode::Mechanism(mechanism_to_wire(mech)?),
         Node::Crystal(crystal) => WireNode::Crystal(crystal_to_wire(crystal)?),
+        Node::Spectrum(spectrum) => WireNode::Spectrum(spectrum_to_wire(spectrum)),
+        Node::Calculation(calc) => WireNode::Calculation(calculation_to_wire(calc)),
+        Node::ZMatrix(zmatrix) => WireNode::ZMatrix(zmatrix_to_wire(zmatrix)),
     })
 }
 
@@ -446,6 +545,64 @@ fn crystal_to_wire(crystal: &model::Crystal) -> Result<Crystal> {
         spacegroup: crystal.spacegroup.clone(),
         atoms: crystal.atoms.iter().map(atom_to_wire).collect(),
     })
+}
+
+fn spectrum_to_wire(spectrum: &model::Spectrum) -> Spectrum {
+    let mut params = serde_json::Map::new();
+    for (key, value) in &spectrum.params {
+        params.insert(key.clone(), serde_json::Value::String(value.clone()));
+    }
+    Spectrum {
+        tag: SpectrumTag::Spectrum,
+        technique: spectrum.technique.clone(),
+        params,
+        peaks: spectrum
+            .peaks
+            .iter()
+            .map(|peak| SpectrumPeak {
+                position: peak.position.clone().unwrap_or_default(),
+                intensity: peak.intensity.clone(),
+                multiplicity: peak.multiplicity.clone(),
+                assignment: peak.assignment.clone(),
+            })
+            .collect(),
+    }
+}
+
+fn calculation_to_wire(calc: &model::Calculation) -> Calculation {
+    Calculation {
+        tag: CalculationTag::Calculation,
+        method: calc.method.clone(),
+        basis: calc.basis.clone(),
+        properties: calc
+            .properties
+            .iter()
+            .map(|property| CalculationProperty {
+                title: property.title.clone(),
+                value: property.value.clone(),
+                units: property.units.clone(),
+            })
+            .collect(),
+    }
+}
+
+fn zmatrix_to_wire(zmatrix: &model::ZMatrix) -> ZMatrix {
+    ZMatrix {
+        tag: ZMatrixTag::ZMatrix,
+        rows: zmatrix
+            .rows
+            .iter()
+            .map(|row| ZRow {
+                atom: row.atom.clone(),
+                ref1: row.ref1.clone(),
+                distance: row.distance.clone(),
+                ref2: row.ref2.clone(),
+                angle: row.angle.clone(),
+                ref3: row.ref3.clone(),
+                dihedral: row.dihedral.clone(),
+            })
+            .collect(),
+    }
 }
 
 fn molecule_to_wire(mol: &model::Molecule) -> Molecule {
@@ -666,6 +823,52 @@ pub fn node_from_wire(wire: &WireNode) -> Result<Node> {
                     x_fract: None,
                     y_fract: None,
                     z_fract: None,
+                })
+                .collect(),
+        }),
+        WireNode::Spectrum(spectrum) => Node::Spectrum(model::Spectrum {
+            technique: spectrum.technique.clone(),
+            params: spectrum
+                .params
+                .iter()
+                .map(|(key, value)| (key.clone(), value.as_str().unwrap_or_default().to_string()))
+                .collect(),
+            peaks: spectrum
+                .peaks
+                .iter()
+                .map(|peak| model::SpectrumPeak {
+                    position: (!peak.position.is_empty()).then(|| peak.position.clone()),
+                    intensity: peak.intensity.clone(),
+                    multiplicity: peak.multiplicity.clone(),
+                    assignment: peak.assignment.clone(),
+                })
+                .collect(),
+        }),
+        WireNode::Calculation(calc) => Node::Calculation(model::Calculation {
+            method: calc.method.clone(),
+            basis: calc.basis.clone(),
+            properties: calc
+                .properties
+                .iter()
+                .map(|property| model::CalculationProperty {
+                    title: property.title.clone(),
+                    value: property.value.clone(),
+                    units: property.units.clone(),
+                })
+                .collect(),
+        }),
+        WireNode::ZMatrix(zmatrix) => Node::ZMatrix(model::ZMatrix {
+            rows: zmatrix
+                .rows
+                .iter()
+                .map(|row| model::ZRow {
+                    atom: row.atom.clone(),
+                    ref1: row.ref1.clone(),
+                    distance: row.distance.clone(),
+                    ref2: row.ref2.clone(),
+                    angle: row.angle.clone(),
+                    ref3: row.ref3.clone(),
+                    dihedral: row.dihedral.clone(),
                 })
                 .collect(),
         }),
