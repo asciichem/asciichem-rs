@@ -1,13 +1,13 @@
 [package]
 name = "asciichem"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 description = "AsciiChem: ASCII syntax for chemistry parsed into a semantic model"
 license = "BSD-2-Clause"
 repository = "https://github.com/asciichem/asciichem-rs"
 
 [dependencies]
-chemomer = "0.1.0"
+chemomer = "1.0.1"
 leptris = "1.6.19"
 parsanol = "0.18.9"
 serde = { version = "1.0.229", features = ["derive"] }
