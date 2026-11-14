@@ -1036,7 +1036,7 @@ mod tests {
     #[test]
     fn identifier_format_passes_valid_and_skips_unknown_conventions() {
         assert!(errors_of("H_2O @cas(\"7732-18-5\")").is_empty());
-        assert!(errors_of("C @iupac(\"methane\")").is_empty());
+        assert!(errors_of("C @chebi(\"CHEBI:16183\")").is_empty());
     }
 
     #[test]
