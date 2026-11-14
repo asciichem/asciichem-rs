@@ -35,11 +35,19 @@
 //!   `ringClosures`).
 //! - **Top-level elements** — `<aci:<name> position="N">text</…>`
 //!   children of `<cml>` for `ElectronConfiguration`,
-//!   `EmbeddedMath`, `Text`, `Mechanism`; `position` preserves node
-//!   ordering in the formula.
+//!   `EmbeddedMath`, `Text`, `Mechanism`, `Crystal`, `Spectrum`,
+//!   `Calculation`, `ZMatrix`; `position` preserves node ordering in
+//!   the formula. Each payload is the construct's canonical text
+//!   render, re-parsed on read.
 //! - **Molecule groups** — `<aci:group multiplicity="N" bracket="X"
 //!   atomRefs="a1 a2"/>` children of `<molecule>`, preserving AsciiChem
 //!   group structure through the canonical flattening.
+//!
+//! Reaction conditions ride `aci:conditionsAbove` /
+//! `aci:conditionsBelow` attributes on `<reaction>` (the PY runtime's
+//! shape); the read side also accepts the TS runtime's native
+//! `<conditionList><scalar title="above|below">` wire, which wins
+//! when both forms ride the same reaction.
 //!
 //! The `xmlns:aci` declaration appears only when at least one
 //! extension is present; plain atoms and molecules produce clean CML.
@@ -47,17 +55,17 @@
 //! namespaces can never be mistaken for a channel (classification is
 //! by resolved namespace URI, not by written prefix).
 //!
-//! Constructs with no wire representation and no channel
-//! (`Crystal`, `Spectrum`, `ZMatrix`, `Calculation`, reaction
-//! conditions, molecule annotations) report [`CmlError::Unsupported`]
-//! on emit rather than dropping silently — the remaining surface is
-//! tracked in asciichem-rs#15.
+//! Molecule annotations (names, titles, labels, properties, metadata)
+//! have no wire representation and report [`CmlError::Unsupported`]
+//! on emit rather than dropping silently.
 
 use std::ffi::{CStr, CString};
 use std::fmt;
 use std::os::raw::{c_char, c_int};
 
-use crate::model::{leading_integer, Atom, Bond, Group, Molecule, Node, Reaction, ReactionCascade};
+use crate::model::{
+    leading_integer, Atom, Bond, Conditions, Group, Molecule, Node, Reaction, ReactionCascade,
+};
 
 /// The CML core namespace (the standard wire).
 pub const CML_NAMESPACE: &str = "http://www.xml-cml.org/schema";
@@ -250,8 +258,21 @@ const ATOM_FIELDS: [(&str, &str); 4] = [
 ];
 
 /// Top-level channel element names.
-const TOP_LEVEL_ELEMENTS: [&str; 4] =
-    ["electronConfiguration", "embeddedMath", "text", "mechanism"];
+const TOP_LEVEL_ELEMENTS: [&str; 8] = [
+    "electronConfiguration",
+    "embeddedMath",
+    "text",
+    "mechanism",
+    "crystal",
+    "spectrum",
+    "calculation",
+    "zmatrix",
+];
+
+/// The per-reaction conditions channel: model side → wire attribute
+/// name (without the `aci:` prefix), in above-then-below order.
+const CONDITION_ATTRS: [(&str, &str); 2] =
+    [("above", "conditionsAbove"), ("below", "conditionsBelow")];
 
 /// Group brackets on the wire (the model stores the same names).
 const BRACKETS: [&str; 3] = ["paren", "square", "brace"];
@@ -449,6 +470,10 @@ fn top_level_payload(node: &Node) -> Result<(&'static str, String), CmlError> {
         Node::EmbeddedMath(source) => Ok(("embeddedMath", source.clone())),
         Node::Text(content) => Ok(("text", format!("\"{content}\""))),
         Node::Mechanism(_) => Ok(("mechanism", node.to_string())),
+        Node::Crystal(_) => Ok(("crystal", node.to_string())),
+        Node::Spectrum(_) => Ok(("spectrum", node.to_string())),
+        Node::Calculation(_) => Ok(("calculation", node.to_string())),
+        Node::ZMatrix(_) => Ok(("zmatrix", node.to_string())),
         other => Err(CmlError::Unsupported(other.diagnostic_label())),
     }
 }
@@ -532,21 +557,26 @@ fn emit_reaction(
     ids: &mut Ids,
     reaction: &Reaction,
 ) -> Result<(*mut ffi::LeptrisElement, bool), CmlError> {
-    if reaction
-        .conditions
-        .as_ref()
-        .is_some_and(|conditions| conditions.above.is_some() || conditions.below.is_some())
-    {
-        // The conditions channel (aci:condition, like the reference's
-        // ConditionsExtensions) is not in this slice — report rather
-        // than drop (asciichem-rs#15 remaining list).
-        return Err(CmlError::Unsupported("reaction conditions".into()));
-    }
     let element = dom.create_element("reaction")?;
     set_attribute(element, "id", &ids.next_reaction())?;
     set_attribute(element, "title", &reaction.arrow)?;
     set_attribute(element, "type", &reaction.arrow)?;
     let mut extensions = false;
+    // The conditions channel rides `aci:conditionsAbove` /
+    // `aci:conditionsBelow` attributes on the reaction (the PY
+    // runtime's shape); each present side flips the namespace flag.
+    if let Some(conditions) = &reaction.conditions {
+        let sides = [
+            (&conditions.above, CONDITION_ATTRS[0].1),
+            (&conditions.below, CONDITION_ATTRS[1].1),
+        ];
+        for (value, wire) in sides {
+            if let Some(value) = value {
+                set_attribute(element, &format!("{ACI_PREFIX}:{wire}"), value)?;
+                extensions = true;
+            }
+        }
+    }
     let reactant_list = child_element(element, "reactantList")?;
     for molecule in &reaction.reactants {
         extensions |= emit_participant(dom, ids, reactant_list, "reactant", molecule)?;
@@ -1398,6 +1428,7 @@ fn read_reaction(element: &XNode) -> Result<Reaction, CmlError> {
         .unwrap_or_else(|| "forward".to_string());
     let mut reactants = Vec::new();
     let mut products = Vec::new();
+    let mut conditions: Option<Conditions> = None;
     for child in &element.children {
         if !child.is_core() {
             continue;
@@ -1413,15 +1444,51 @@ fn read_reaction(element: &XNode) -> Result<Reaction, CmlError> {
                     products.push(read_participant(participant)?);
                 }
             }
+            // The native conditionList (the TS runtime's emission):
+            // `<scalar title="above|below">text</scalar>` children,
+            // scalars matched by title, unknown titles skipped.
+            "conditionList" => {
+                conditions = read_condition_list(child);
+            }
             _ => {}
+        }
+    }
+    // The `aci:conditionsAbove`/`aci:conditionsBelow` attributes (the
+    // PY runtime's shape, and this module's emission). The native
+    // conditionList wins when both ride the wire.
+    if conditions.is_none() {
+        let above = element
+            .attr_ns(ACI_NAMESPACE, "conditionsAbove")
+            .map(str::to_string);
+        let below = element
+            .attr_ns(ACI_NAMESPACE, "conditionsBelow")
+            .map(str::to_string);
+        if above.is_some() || below.is_some() {
+            conditions = Some(Conditions { above, below });
         }
     }
     Ok(Reaction {
         reactants,
         products,
         arrow,
-        conditions: None,
+        conditions,
     })
+}
+
+/// `<scalar title="above|below">text</scalar>` children — the native
+/// conditions wire. The first scalar of each title wins; a list with
+/// neither title carries nothing.
+fn read_condition_list(element: &XNode) -> Option<Conditions> {
+    let mut above: Option<String> = None;
+    let mut below: Option<String> = None;
+    for scalar in element.children_named("scalar") {
+        match scalar.attr("title") {
+            Some("above") if above.is_none() => above = Some(scalar.text.clone()),
+            Some("below") if below.is_none() => below = Some(scalar.text.clone()),
+            _ => {}
+        }
+    }
+    (above.is_some() || below.is_some()).then_some(Conditions { above, below })
 }
 
 fn read_participant(element: &XNode) -> Result<Node, CmlError> {

@@ -8,8 +8,9 @@ use std::collections::HashMap;
 use parsanol::portable::transform::Value;
 
 use crate::model::{
-    Atom, Bond, Conditions, Crystal, ElectronConfiguration, Flow, Group, Identifier, Mechanism,
-    MechanismStep, Molecule, Name, Node, Reaction, ReactionCascade,
+    Atom, Bond, Calculation, CalculationProperty, Conditions, Crystal, ElectronConfiguration, Flow,
+    Group, Identifier, Mechanism, MechanismStep, Molecule, Name, Node, Reaction, ReactionCascade,
+    Spectrum, SpectrumPeak, ZMatrix, ZRow,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -137,6 +138,15 @@ pub fn build_node(value: &Value) -> Result<Node> {
     }
     if let Some(crystal) = hash.get("crystal_node") {
         return build_crystal(crystal);
+    }
+    if let Some(spectrum) = hash.get("spectrum_node") {
+        return build_spectrum(spectrum);
+    }
+    if let Some(calc) = hash.get("calc_node") {
+        return build_calculation(calc);
+    }
+    if let Some(zmatrix) = hash.get("zmatrix_node") {
+        return build_zmatrix(zmatrix);
     }
     if hash.contains_key("open_bracket") && hash.contains_key("group_nodes") {
         return build_group(hash);
@@ -623,6 +633,201 @@ fn crystal_atoms(body: Option<&str>) -> Result<Vec<Atom>> {
         }
     }
     Ok(atoms)
+}
+
+// -- spectra, calculations, z-matrices ------------------------------------
+
+/// Builds a Spectrum from the grammar's raw captures (technique, the
+/// `k=v,...` parameter string, the peak-line body) — the reference's
+/// SpectrumBuilder: each body line is one peak, a quoted tail is the
+/// assignment. A bare `spectrum` literal (no body capture) is the
+/// empty record.
+fn build_spectrum(value: &Value) -> Result<Node> {
+    let (technique, params_raw, body) = match value {
+        Value::Hash(hash) => {
+            let technique = strip_value(hash.get("spectrum_type"));
+            let params_raw = str_of(hash.get("spectrum_params"));
+            let body = strip_value(hash.get("spectrum_body"));
+            (technique, params_raw, body)
+        }
+        // The grammar names `spectrum >> body.maybe`: with no body the
+        // capture is the bare literal string — the empty record (the
+        // reference's builder gets a nil body).
+        Value::String(_) => (None, None, None),
+        other => {
+            return Err(BuildError::Malformed(format!(
+                "expected hash, got {other:?}"
+            )))
+        }
+    };
+    validate_colon_lines(body.as_deref(), "spectrum peak")?;
+    let mut peaks = Vec::new();
+    for line in body.iter().flat_map(|body| body.split('\n')) {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        // A quoted run anywhere in the line is the assignment (the
+        // reference's /"([^"]*)"/ scan); it leaves the token stream.
+        let mut assignment = None;
+        let mut line = line.to_string();
+        if let Some(open) = line.find('"') {
+            if let Some(len) = line[open + 1..].find('"') {
+                assignment = Some(line[open + 1..][..len].to_string());
+                line.replace_range(open..=open + 1 + len, "");
+                line = line.trim().to_string();
+            }
+        }
+        let (position, rest) = match line.split_once(':') {
+            Some((position, rest)) => (position.trim().to_string(), rest),
+            None => (String::new(), line.as_str()),
+        };
+        let tokens: Vec<&str> = rest.split_whitespace().collect();
+        peaks.push(SpectrumPeak {
+            position: (!position.is_empty()).then_some(position),
+            intensity: tokens.first().map(|token| (*token).to_string()),
+            multiplicity: tokens.get(1).map(|token| (*token).to_string()),
+            assignment,
+        });
+    }
+    let params = parse_params(params_raw.as_deref());
+    Ok(Node::Spectrum(Spectrum {
+        technique,
+        params,
+        peaks,
+    }))
+}
+
+/// Builds a Calculation from the `method/basis` parameter string and
+/// the `title: value units` property lines (the reference's
+/// CalculationBuilder). A bare `calc` literal is the empty record.
+fn build_calculation(value: &Value) -> Result<Node> {
+    let (params_raw, body) = match value {
+        Value::Hash(hash) => {
+            let params_raw = strip_value(hash.get("calc_params"));
+            let body = strip_value(hash.get("calc_body"));
+            (params_raw, body)
+        }
+        Value::String(_) => (None, None),
+        other => {
+            return Err(BuildError::Malformed(format!(
+                "expected hash, got {other:?}"
+            )))
+        }
+    };
+    validate_colon_lines(body.as_deref(), "calculation property")?;
+    let (method, basis) = match params_raw {
+        None => (None, None),
+        Some(params) => {
+            let mut parts = params.split('/');
+            let method = parts.next().unwrap_or_default().trim().to_string();
+            let basis = parts.next().unwrap_or_default().trim().to_string();
+            (
+                (!method.is_empty()).then_some(method),
+                (!basis.is_empty()).then_some(basis),
+            )
+        }
+    };
+    let mut properties = Vec::new();
+    for line in body.iter().flat_map(|body| body.split('\n')) {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Some((key, rest)) = line.split_once(':') else {
+            continue;
+        };
+        if key.trim().is_empty() {
+            continue;
+        }
+        let tokens: Vec<&str> = rest.split_whitespace().collect();
+        properties.push(CalculationProperty {
+            title: key.trim().to_string(),
+            value: tokens.first().copied().unwrap_or_default().to_string(),
+            units: tokens.get(1).map(|token| (*token).to_string()),
+        });
+    }
+    Ok(Node::Calculation(Calculation {
+        method,
+        basis,
+        properties,
+    }))
+}
+
+/// Builds a ZMatrix: each body line is one row, whitespace-split into
+/// the atom/distance/angle/dihedral token slots (the reference's
+/// ZMatrixBuilder). A bare `zmatrix` literal is the empty record.
+fn build_zmatrix(value: &Value) -> Result<Node> {
+    let body = match value {
+        Value::Hash(hash) => strip_value(hash.get("zmatrix_body")),
+        Value::String(_) => None,
+        other => {
+            return Err(BuildError::Malformed(format!(
+                "expected hash, got {other:?}"
+            )))
+        }
+    };
+    let mut rows = Vec::new();
+    for line in body.iter().flat_map(|body| body.split('\n')) {
+        let tokens: Vec<&str> = line.split_whitespace().collect();
+        if tokens.is_empty() {
+            continue;
+        }
+        let token = |index: usize| tokens.get(index).map(|token| (*token).to_string());
+        rows.push(ZRow {
+            atom: tokens[0].to_string(),
+            ref1: token(1),
+            distance: token(2),
+            ref2: token(3),
+            angle: token(4),
+            ref3: token(5),
+            dihedral: token(6),
+        });
+    }
+    Ok(Node::ZMatrix(ZMatrix { rows }))
+}
+
+/// `solvent=CDCl3,type=1H` → the ordered parameter map. A pair without
+/// `=` keeps its key with the empty value (the reference's
+/// `partition('=')` — unlike the crystal's params, spectra keep the
+/// authored key).
+fn parse_params(params: Option<&str>) -> Vec<(String, String)> {
+    let Some(params) = params else {
+        return Vec::new();
+    };
+    params
+        .split(',')
+        .filter_map(|pair| {
+            let pair = pair.trim();
+            // The reference's partition('='): no '=' keeps the whole
+            // pair as the key with the empty value.
+            let (key, value) = match pair.split_once('=') {
+                Some((key, value)) => (key, value),
+                None => (pair, ""),
+            };
+            let key = key.trim();
+            (!key.is_empty()).then(|| (key.to_string(), value.trim().to_string()))
+        })
+        .collect()
+}
+
+/// The spectrum/calculation bodies are line-oriented `key: rest`
+/// records; a nonblank line without the separator is malformed (the
+/// reference's `validate_colon_lines`).
+fn validate_colon_lines(body: Option<&str>, what: &str) -> Result<()> {
+    let Some(body) = body else {
+        return Ok(());
+    };
+    for (index, line) in body.split('\n').enumerate() {
+        let line = line.trim();
+        if !line.is_empty() && !line.contains(':') {
+            return Err(BuildError::Malformed(format!(
+                "{what} on line {} is missing ':' separator: {line:?}",
+                index + 1
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn parse_entries(body: Option<&str>) -> Result<Vec<(String, String)>> {

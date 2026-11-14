@@ -484,6 +484,13 @@ fn segments_for_node(node: &Node) -> Vec<Segment> {
             // crystal)) — one line here.
             vec![seg(node.to_string(), 0.0)]
         }
+        Node::Spectrum(_) | Node::Calculation(_) | Node::ZMatrix(_) => {
+            // The reference renders constructs without a natural 2D
+            // form through the canonical text (Formatter.render(:text,
+            // spectrum/calculation/z-matrix)) — the full multi-line
+            // entry set, as with mechanisms.
+            vec![seg(node.to_string(), 0.0)]
+        }
     }
 }
 

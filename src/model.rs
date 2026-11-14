@@ -390,6 +390,90 @@ impl Crystal {
     }
 }
 
+/// One spectrum peak: position plus intensity, splitting pattern, and
+/// the structural assignment (the reference's `SpectrumPeak`).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SpectrumPeak {
+    pub position: Option<String>,
+    pub intensity: Option<String>,
+    pub multiplicity: Option<String>,
+    pub assignment: Option<String>,
+}
+
+/// A spectroscopy record: technique, acquisition parameters (authored
+/// order preserved — the wire's map iterates the same way), and peaks.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Spectrum {
+    pub technique: Option<String>,
+    pub params: Vec<(String, String)>,
+    pub peaks: Vec<SpectrumPeak>,
+}
+
+impl Spectrum {
+    /// Human-readable label for linter diagnostics
+    /// ("Spectrum(1H)"; "unknown" when no technique is authored).
+    pub fn diagnostic_label(&self) -> String {
+        format!(
+            "Spectrum({})",
+            self.technique.as_deref().unwrap_or("unknown")
+        )
+    }
+}
+
+/// One computed property line of a calculation record.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CalculationProperty {
+    pub title: String,
+    pub value: String,
+    pub units: Option<String>,
+}
+
+/// A computational-chemistry result: method, basis set, properties.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Calculation {
+    pub method: Option<String>,
+    pub basis: Option<String>,
+    pub properties: Vec<CalculationProperty>,
+}
+
+impl Calculation {
+    /// Human-readable label for linter diagnostics
+    /// ("Calculation(B3LYP/6-31G*)").
+    pub fn diagnostic_label(&self) -> String {
+        format!(
+            "Calculation({}/{})",
+            self.method.as_deref().unwrap_or_default(),
+            self.basis.as_deref().unwrap_or_default()
+        )
+    }
+}
+
+/// One z-matrix row: an atom placed by distance/angle/dihedral to
+/// previously defined atoms (the reference's `ZRow`).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ZRow {
+    pub atom: String,
+    pub ref1: Option<String>,
+    pub distance: Option<String>,
+    pub ref2: Option<String>,
+    pub angle: Option<String>,
+    pub ref3: Option<String>,
+    pub dihedral: Option<String>,
+}
+
+/// Internal coordinates: the ordered z-matrix rows.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ZMatrix {
+    pub rows: Vec<ZRow>,
+}
+
+impl ZMatrix {
+    /// Human-readable label for linter diagnostics ("ZMatrix(3 rows)").
+    pub fn diagnostic_label(&self) -> String {
+        format!("ZMatrix({} rows)", self.rows.len())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Node {
     Atom(Atom),
@@ -401,6 +485,9 @@ pub enum Node {
     ElectronConfiguration(ElectronConfiguration),
     Mechanism(Mechanism),
     Crystal(Crystal),
+    Spectrum(Spectrum),
+    Calculation(Calculation),
+    ZMatrix(ZMatrix),
     EmbeddedMath(String),
     Text(String),
 }
@@ -450,6 +537,9 @@ impl Node {
                 format!("Mechanism({} steps)", mechanism.steps.len())
             }
             Node::Crystal(crystal) => crystal.diagnostic_label(),
+            Node::Spectrum(spectrum) => spectrum.diagnostic_label(),
+            Node::Calculation(calculation) => calculation.diagnostic_label(),
+            Node::ZMatrix(zmatrix) => zmatrix.diagnostic_label(),
             Node::EmbeddedMath(_) => "Embedded Math".to_string(),
             Node::Text(_) => "Text".to_string(),
         }
@@ -656,6 +746,106 @@ impl fmt::Display for Node {
                 if !crystal.atoms.is_empty() {
                     let atoms: Vec<String> = crystal.atoms.iter().map(atom_text).collect();
                     out.push_str(&format!("{{{}}}", atoms.join(" ")));
+                }
+                write!(f, "{out}")
+            }
+            Node::Spectrum(spectrum) => {
+                let mut out = String::from("spectrum");
+                if let Some(technique) = &spectrum.technique {
+                    out.push_str(&format!("[{technique}]"));
+                }
+                let params = spectrum
+                    .params
+                    .iter()
+                    .map(|(key, value)| format!("{key}={value}"))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                if !params.is_empty() {
+                    out.push_str(&format!("({params})"));
+                }
+                if !spectrum.peaks.is_empty() {
+                    let lines = spectrum
+                        .peaks
+                        .iter()
+                        .map(|peak| {
+                            let mut line = format!(
+                                "{}: {}",
+                                peak.position.as_deref().unwrap_or_default(),
+                                peak.intensity.as_deref().unwrap_or_default()
+                            );
+                            if let Some(multiplicity) = &peak.multiplicity {
+                                line.push(' ');
+                                line.push_str(multiplicity);
+                            }
+                            if let Some(assignment) = &peak.assignment {
+                                line.push_str(&format!(" \"{assignment}\""));
+                            }
+                            line
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n  ");
+                    out.push_str(&format!("{{\n  {lines}\n}}"));
+                }
+                write!(f, "{out}")
+            }
+            Node::Calculation(calc) => {
+                let mut out = String::from("calc");
+                let mut params: Vec<String> = Vec::new();
+                if let Some(method) = &calc.method {
+                    params.push(method.clone());
+                }
+                if let Some(basis) = &calc.basis {
+                    params.push(basis.clone());
+                }
+                if !params.is_empty() {
+                    out.push_str(&format!("({})", params.join("/")));
+                }
+                if !calc.properties.is_empty() {
+                    let lines = calc
+                        .properties
+                        .iter()
+                        .map(|property| {
+                            let mut line = format!("{}: {}", property.title, property.value);
+                            if let Some(units) = &property.units {
+                                line.push(' ');
+                                line.push_str(units);
+                            }
+                            line
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n  ");
+                    out.push_str(&format!("{{\n  {lines}\n}}"));
+                }
+                write!(f, "{out}")
+            }
+            Node::ZMatrix(zmatrix) => {
+                let mut out = String::from("zmatrix");
+                if !zmatrix.rows.is_empty() {
+                    let lines = zmatrix
+                        .rows
+                        .iter()
+                        .map(|row| {
+                            // The reference's token list: presence of a
+                            // ref gates its pair, `compact` drops any
+                            // nil tail before the two-space join.
+                            let mut tokens: Vec<Option<&str>> = vec![Some(&row.atom)];
+                            if let Some(ref1) = &row.ref1 {
+                                tokens.push(Some(ref1));
+                                tokens.push(row.distance.as_deref());
+                            }
+                            if let Some(ref2) = &row.ref2 {
+                                tokens.push(Some(ref2));
+                                tokens.push(row.angle.as_deref());
+                            }
+                            if let Some(ref3) = &row.ref3 {
+                                tokens.push(Some(ref3));
+                                tokens.push(row.dihedral.as_deref());
+                            }
+                            tokens.into_iter().flatten().collect::<Vec<_>>().join("  ")
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n  ");
+                    out.push_str(&format!("{{\n  {lines}\n}}"));
                 }
                 write!(f, "{out}")
             }

@@ -158,6 +158,18 @@ fn render_node(node: &Node) -> Render<Node_> {
         Node::ElectronConfiguration(ec) => Ok(Node_::Element(render_electron_configuration(ec))),
         Node::Mechanism(mech) => Ok(Node_::Element(render_mechanism(mech))),
         Node::Crystal(crystal) => Ok(Node_::Element(render_crystal(crystal))),
+        Node::Spectrum(_) | Node::Calculation(_) | Node::ZMatrix(_) => {
+            Err(crate::build::BuildError::Unsupported(
+                // The reference renders these as tabular entries; the
+                // Rust core reports rather than inventing the shape.
+                match node {
+                    Node::Spectrum(_) => "spectrum rendering",
+                    Node::Calculation(_) => "calculation rendering",
+                    _ => "z-matrix rendering",
+                }
+                .into(),
+            ))
+        }
         Node::EmbeddedMath(_) => Err(crate::build::BuildError::Unsupported(
             "embedded math rendering (Plurimath pipeline)".into(),
         )),
