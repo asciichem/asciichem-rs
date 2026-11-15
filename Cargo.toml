@@ -1,15 +1,15 @@
 [package]
 name = "asciichem"
-version = "1.2.0"
+version = "1.2.1"
 edition = "2021"
 description = "AsciiChem: ASCII syntax for chemistry parsed into a semantic model"
 license = "BSD-2-Clause"
 repository = "https://github.com/asciichem/asciichem-rs"
 
 [dependencies]
-chemomer = "1.0.1"
+chemomer = "1.1.0"
 leptris = "1.6.19"
-parsanol = "0.18.9"
+parsanol = "0.20.22"
 serde = { version = "1.0.229", features = ["derive"] }
 # preserve_order: the lint command's JSON payload spells its keys in
 # the reference's order (severity, message, node) — struct
