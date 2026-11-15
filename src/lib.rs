@@ -214,6 +214,7 @@ fn parse_value(source: &str) -> Result<parsanol::portable::transform::Value, Par
     let grammar = grammar()?;
     let mut arena = AstArena::for_input(source.len());
     let mut parser = PortableParser::new(grammar, source, &mut arena);
+    let _ = parser.set_diagnostics_policy(parsanol::portable::DiagnosticsPolicy::Pending);
     let result = parser.parse_with_end_pos().map_err(|error| ParseError {
         message: error.to_string(),
     })?;
