@@ -9,7 +9,7 @@ repository = "https://github.com/asciichem/asciichem-rs"
 [dependencies]
 chemomer = "1.1.0"
 leptris = "1.6.19"
-parsanol = "0.20.22"
+parsanol = "1.5"
 serde = { version = "1.0.229", features = ["derive"] }
 # preserve_order: the lint command's JSON payload spells its keys in
 # the reference's order (severity, message, node) — struct
