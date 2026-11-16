@@ -238,6 +238,20 @@ fn smiles_ingestion_contract() {
                         Err(error) => failures.push(format!("{id}: write failed: {error}")),
                     }
                 }
+                // The recorded identity intersection: the engine
+                // derives exactly the recorded InChI (the corpus's
+                // three-leg recording; cases outside the phase carry
+                // no column and skip).
+                if let Some(expected) = case.get("inchi").and_then(|v| v.as_str()) {
+                    match asciichem::identity::derive_from_smiles(smiles) {
+                        Ok(identity) if identity.inchi == expected => {}
+                        Ok(identity) => failures.push(format!(
+                            "{id}: identity mismatch\n  expected: {expected}\n  actual:   {}",
+                            identity.inchi
+                        )),
+                        Err(error) => failures.push(format!("{id}: derive failed: {error}")),
+                    }
+                }
             }
             Err(error) => {
                 if parses {
