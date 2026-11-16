@@ -55,6 +55,24 @@ pub fn derive(molecule: &model::Molecule) -> chemomer::Result<Identity> {
     derive_from_molfile(&molfile)
 }
 
+/// Derives the identity of a SMILES string — the local SMILES ingest
+/// edge end to end: SMILES → the model molecule (the native
+/// [`crate::smiles`] parser) → the molfile pipe → the engine. No
+/// database round-trip; the identity comes from the local read.
+pub fn derive_from_smiles(smiles: &str) -> chemomer::Result<Identity> {
+    let nodes =
+        crate::smiles::parse_smiles(smiles).map_err(|error| chemomer::Error::new(error.message))?;
+    let molecule = match nodes.first() {
+        Some(model::Node::Molecule(mol)) => mol,
+        _ => {
+            return Err(chemomer::Error::new(
+                "smiles: no molecule component to derive",
+            ))
+        }
+    };
+    derive(molecule)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
