@@ -33,6 +33,7 @@ struct Case {
     input: String,
     parses: bool,
     round_trip: bool,
+    recorded_text: Option<String>,
 }
 
 fn load_cases() -> Option<Vec<Case>> {
@@ -68,6 +69,10 @@ fn load_cases() -> Option<Vec<Case>> {
                     .get("roundTrip")
                     .and_then(serde_json::Value::as_bool)
                     .unwrap_or(false),
+                recorded_text: case
+                    .get("text")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string),
             });
         }
     }
@@ -184,6 +189,45 @@ fn case_id(case: &serde_json::Value) -> String {
         .and_then(|value| value.as_str())
         .unwrap_or("<unnamed>")
         .to_string()
+}
+
+#[test]
+fn structure_reference_text_contract() {
+    // The structure-reference family's recorded text column
+    // (asciichem-tests#31): where the canonical text was recorded, the
+    // runtime produces exactly that string (cross-runtime text parity
+    // of the ingest edge).
+    let Some(cases) = load_cases() else {
+        eprintln!("corpus not cloned as a sibling (or set ASCIICHEM_CORPUS); skipping");
+        return;
+    };
+    let mut pass = 0;
+    let mut mismatches = Vec::new();
+    for case in load_cases()
+        .unwrap_or_default()
+        .iter()
+        .filter(|case| case.recorded_text.is_some())
+    {
+        let recorded = case.recorded_text.as_deref().expect("checked");
+        match asciichem::parse_to_text(&case.input) {
+            Ok(output) if output == recorded => pass += 1,
+            Ok(output) => mismatches.push(format!(
+                "{}: text mismatch\n  expected: {:?}\n  actual:   {:?}",
+                case.id, recorded, output
+            )),
+            Err(error) => mismatches.push(format!("{}: {error}", case.id)),
+        }
+    }
+    assert!(
+        pass > 0,
+        "expected recorded-text passes; got none (mismatches: {mismatches:?})"
+    );
+    assert!(
+        mismatches.is_empty(),
+        "{} recorded-text mismatch(es):\n{}",
+        mismatches.len(),
+        mismatches.join("\n")
+    );
 }
 
 #[test]
