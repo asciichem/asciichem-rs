@@ -22,7 +22,9 @@
 //! no second walker.
 
 use crate::model;
-use crate::molfile::{write_molfile, write_molfile_unlaid};
+use crate::molfile::write_molfile;
+#[cfg(test)]
+use crate::molfile::write_molfile_unlaid;
 
 /// The derived identity of a structure: the standard InChI string,
 /// its AuxInfo line, and the InChIKey.
