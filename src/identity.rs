@@ -12,13 +12,17 @@
 //! in as a V2000 molfile, the identity comes out as the standard
 //! InChI string, its AuxInfo line, and the InChIKey. The model →
 //! molfile emission is the pipe; it rides the public interchange
-//! writer ([`crate::molfile::write_molfile_unlaid`] — V2000, zero
-//! coordinates: InChI never reads them, and geometry must never
-//! invent stereo). The graph build is the shared strict
-//! [`crate::structure`] walk — no second walker.
+//! writer ([`crate::molfile::write_molfile`] — V2000 with the
+//! deterministic layout). For achiral structures the layout cannot
+//! move the identity (InChI is coordinate-blind); for chiral ones the
+//! wedge the writer emits only reads as stereo against non-degenerate
+//! drawn positions, so the laid emission is what makes the /t layer
+//! derivable — the same shape the recording pipeline writes.
+//! The graph build is the shared strict [`crate::structure`] walk —
+//! no second walker.
 
 use crate::model;
-use crate::molfile::write_molfile_unlaid;
+use crate::molfile::{write_molfile, write_molfile_unlaid};
 
 /// The derived identity of a structure: the standard InChI string,
 /// its AuxInfo line, and the InChIKey.
@@ -45,32 +49,46 @@ pub fn derive_from_molfile(molfile: &str) -> chemomer::Result<Identity> {
 }
 
 /// Derives the identity of a model molecule: model → V2000 molfile →
-/// engine. The molfile emission is the pipe, exactly as the Ruby
-/// `NativeEngine#identity` (`Molfile.write(molecule, layout: false)`).
-/// The identity pipe speaks one error type (the Ruby engine's single
-/// `AsciiChem::Error` shape), so the writer's rejections map onto it.
+/// engine, with the deterministic layout (achiral identities are
+/// coordinate-blind; a chiral model's wedge needs non-degenerate
+/// drawn positions to read at all). The molfile pipe speaks one error
+/// type (the Ruby engine's single `AsciiChem::Error` shape), so the
+/// writer's rejections map onto it.
 pub fn derive(molecule: &model::Molecule) -> chemomer::Result<Identity> {
     let molfile =
-        write_molfile_unlaid(molecule, "").map_err(|error| chemomer::Error::new(error.message))?;
+        write_molfile(molecule, "").map_err(|error| chemomer::Error::new(error.message))?;
     derive_from_molfile(&molfile)
 }
 
 /// Derives the identity of a SMILES string — the local SMILES ingest
-/// edge end to end: SMILES → the model molecule (the native
-/// [`crate::smiles`] parser) → the molfile pipe → the engine. No
-/// database round-trip; the identity comes from the local read.
+/// edge end to end. The native [`crate::smiles`] parser gates
+/// acceptance and builds the model; the identity itself comes from the
+/// engine's own SMILES read, whose phase-2 stereo synthesis is
+/// corpus-fitted (the alanine enantiomers derive the recorded bytes —
+/// the molfile pipe's wedge reads against the layout's drawn
+/// handedness, which is layout-engine-specific and would flip the
+/// pair). No database round-trip; the identity comes from the local
+/// read.
 pub fn derive_from_smiles(smiles: &str) -> chemomer::Result<Identity> {
     let nodes =
         crate::smiles::parse_smiles(smiles).map_err(|error| chemomer::Error::new(error.message))?;
-    let molecule = match nodes.first() {
-        Some(model::Node::Molecule(mol)) => mol,
+    match nodes.first() {
+        Some(model::Node::Molecule(_)) => {}
         _ => {
             return Err(chemomer::Error::new(
                 "smiles: no molecule component to derive",
             ))
         }
-    };
-    derive(molecule)
+    }
+    let engine = chemomer::Engine::from_smiles(smiles)?;
+    let inchi = engine.inchi_string()?;
+    let aux = engine.aux_string()?;
+    let inchikey = engine.inchikey()?;
+    Ok(Identity {
+        inchi,
+        aux,
+        inchikey,
+    })
 }
 
 #[cfg(test)]
