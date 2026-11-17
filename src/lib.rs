@@ -66,6 +66,7 @@ pub mod identifiers;
 pub mod identity;
 pub mod latex;
 pub mod layout;
+pub mod kekule;
 pub mod linter;
 pub mod mathml;
 pub mod mechanism_graph;

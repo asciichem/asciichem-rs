@@ -122,3 +122,24 @@ fn rejects_out_of_subset_forms() {
         }
     }
 }
+
+// The text projection of an aromatic ring is its Kekulé form
+// (asciichem-ruby#188): an aromatic ':' bond never re-parses in text,
+// alternating '='/'-' does. Even rings and fused systems project;
+// odd rings keep the aromatic glyph (the spec'd text loss). The
+// model keeps its aromatic bonds — only the text view projects.
+#[test]
+fn projects_aromatic_rings_as_kekule_text() {
+    let text = |smiles: &str| {
+        parse_smiles(smiles)
+            .expect("parses")
+            .iter()
+            .map(|node| node.to_string())
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    assert_eq!(text("c1ccccc1"), "C1=C-C=C-C=C1");
+    assert_eq!(text("c1ccncc1"), "C1=C-C=N-C=C1");
+    assert_eq!(text("c1ccoc1"), "C1:C:C:O:C1");
+    assert_eq!(text("c1ccc2ccccc2c1"), "C1=C-C=C2-C=C-C=C-C2=C1");
+}
