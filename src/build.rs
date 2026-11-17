@@ -923,7 +923,6 @@ fn split_flows(label: &str, value: &str) -> Result<(String, Vec<Flow>)> {
 
 #[cfg(test)]
 mod structure_reference_tests {
-    use super::*;
     use crate::model::Node;
     use crate::parse_nodes;
 
