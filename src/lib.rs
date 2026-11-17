@@ -253,19 +253,9 @@ pub fn parse(input: &str) -> Result<(), ParseError> {
 }
 
 fn parse_inner(source: &str) -> Result<(), ParseError> {
-    let result = grammar()?
-        .parse_with_pos(source)
-        .map_err(|error| ParseError {
-            message: error.to_string(),
-        })?;
-    if result.end_pos < source.len() {
-        return Err(ParseError {
-            message: format!(
-                "input not fully captured: consumed {} of {} bytes",
-                result.end_pos,
-                source.len()
-            ),
-        });
-    }
-    Ok(())
+    // The acceptance probe is parse AND build: a capture tree the
+    // builder rejects (the structure reference's dot-components, for
+    // one) is a rejection, exactly as the other runtimes' parse entry
+    // points classify it.
+    parse_nodes_direct(source).map(|_| ())
 }
