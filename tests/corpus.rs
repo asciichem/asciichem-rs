@@ -203,11 +203,7 @@ fn structure_reference_text_contract() {
     };
     let mut pass = 0;
     let mut mismatches = Vec::new();
-    for case in load_cases()
-        .unwrap_or_default()
-        .iter()
-        .filter(|case| case.recorded_text.is_some())
-    {
+    for case in cases.iter().filter(|case| case.recorded_text.is_some()) {
         let recorded = case.recorded_text.as_deref().expect("checked");
         match asciichem::parse_to_text(&case.input) {
             Ok(output) if output == recorded => pass += 1,
