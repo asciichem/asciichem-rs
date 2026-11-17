@@ -9,11 +9,11 @@ env:
   # Hermetic CI: the corpus ref is pinned, never floating. Bump this
   # one line deliberately with each corpus release (the tag carries
   # what changed).
-  CORPUS_REF: v0.14.0
+  CORPUS_REF: v0.15.0
   # The identity oracle corpus (chemomer/inchi-tests) — the same pin
   # chemomer's own CI gates the engine at; the identity family must
   # never drift from the engine it consumes.
-  CHEMOMER_CORPUS_REF: v0.3.41
+  CHEMOMER_CORPUS_REF: v0.3.42
   # The leptris XML engine behind the CML round-trip and the
   # citation layer (the leptris family directive: XML formats go
   # through libleptris, never hand-rolled strings). Pinned tag,
