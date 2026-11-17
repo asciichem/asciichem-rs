@@ -430,12 +430,47 @@ pub fn write_molfile_unlaid(molecule: &Molecule, name: &str) -> Result<String> {
 }
 
 fn write_molfile_with(molecule: &Molecule, name: &str, layout: bool) -> Result<String> {
-    let (atoms, edges) = build_graph_strict(molecule)?;
+    let (mut atoms, mut edges) = build_graph_strict(molecule)?;
     if edges.is_empty() && atoms.len() > 1 {
         return Err(ParseError {
             message: "molecule has no bonds — a formula is not a structure".into(),
         });
     }
+
+    // Aromatic carriers lose their bracket H in the identity pipe: the
+    // V2000 H-count column is oracle-ignored (the release engine never
+    // reads it) and the valence derivation does not hand aromatic atoms
+    // their H (Hückel perception reads aromatic N as pyridine-type by
+    // default), so a pyrrole's [nH] reads one hydrogen short — the
+    // Ruby transport loss (asciichem-ruby#181). The explicit H atom is
+    // the transport that survives, the same posture as [2H].
+    // Non-aromatic carriers are untouched: their H derive by valence
+    // everywhere, and the recorded corpus molfiles pin their bytes.
+    let base_atoms = atoms.len();
+    let mut h_carriers: Vec<(usize, usize, usize)> = Vec::new();
+    let mut extra_atoms = Vec::new();
+    let mut extra_edges = Vec::new();
+    for (index, atom) in atoms.iter().enumerate() {
+        let Some(count) = atom.hydrogens.filter(|_| atom.aromatic == Some(true)) else {
+            continue;
+        };
+        for nth in 0..count {
+            let target = base_atoms + extra_atoms.len();
+            h_carriers.push((target, index, nth as usize));
+            extra_atoms.push(Atom {
+                element: "H".into(),
+                ..Atom::default()
+            });
+            extra_edges.push(Edge {
+                from: index,
+                to: target,
+                kind: "single".into(),
+                direction: None,
+            });
+        }
+    }
+    atoms.extend(extra_atoms);
+    edges.extend(extra_edges);
 
     // Layout fallback for atoms without authored coordinates. Only
     // trusted when the layout walk saw the same atoms the graph walk
@@ -443,25 +478,36 @@ fn write_molfile_with(molecule: &Molecule, name: &str, layout: bool) -> Result<S
     let layout_positions = layout.then(|| layout::layout_molecule(molecule).1);
     let layout_aligned = layout_positions
         .as_ref()
-        .is_some_and(|positions| positions.len() == atoms.len());
+        .is_some_and(|positions| positions.len() == base_atoms);
 
-    let mut out = String::new();
-    out.push_str(name);
-    out.push('\n');
-    out.push_str("  AsciiChem\n");
-    out.push('\n');
-    out.push_str(&format!(
-        "{:>3}{:>3}  0  0  0  0  0  0  0  0999 V2000",
-        atoms.len(),
-        edges.len()
-    ));
-    out.push('\n');
-
+    // First pass: every atom's coordinates. Model atoms take the
+    // authored/layout position; materialized H atoms sit offset from
+    // their carrier (stacked when several) — no layout position exists
+    // for them.
+    let mut coords: Vec<(f64, f64)> = Vec::with_capacity(atoms.len());
     for (index, atom) in atoms.iter().enumerate() {
-        // Laid: authored coordinates win, the deterministic layout
-        // covers the rest. Unlaid: the coordinate pair stays at the
-        // origin (the Ruby `layout: false` seam behaviour); z passes
-        // through in both.
+        if let Some(&(target, carrier, nth)) = h_carriers
+            .iter()
+            .find(|&&(candidate, _, _)| candidate == index)
+        {
+            let _ = target;
+            let placed = layout_positions
+                .as_ref()
+                .filter(|_| layout_aligned)
+                .and_then(|positions| positions.get(carrier));
+            let x = if layout {
+                atoms[carrier].x2.or(placed.map(|p| p.x)).unwrap_or(0.0)
+            } else {
+                0.0
+            };
+            let y = if layout {
+                atoms[carrier].y2.or(placed.map(|p| p.y)).unwrap_or(0.0)
+            } else {
+                0.0
+            };
+            coords.push((x + 0.75, y + 0.75 * nth as f64));
+            continue;
+        }
         let placed = layout_positions
             .as_ref()
             .filter(|_| layout_aligned)
@@ -476,6 +522,23 @@ fn write_molfile_with(molecule: &Molecule, name: &str, layout: bool) -> Result<S
         } else {
             0.0
         };
+        coords.push((x, y));
+    }
+
+    let mut out = String::new();
+    out.push_str(name);
+    out.push('\n');
+    out.push_str("  AsciiChem\n");
+    out.push('\n');
+    out.push_str(&format!(
+        "{:>3}{:>3}  0  0  0  0  0  0  0  0999 V2000",
+        atoms.len(),
+        edges.len()
+    ));
+    out.push('\n');
+
+    for (index, atom) in atoms.iter().enumerate() {
+        let (x, y) = coords[index];
         let z = atom.z2.unwrap_or(0.0);
         let parity = CHIRALITY_PARITY
             .iter()

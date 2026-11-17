@@ -246,6 +246,50 @@ mod tests {
     }
 
     #[test]
+    fn aromatic_bracket_hydrogens_materialize_as_explicit_atoms() {
+        // The V2000 H-count column is oracle-ignored and the valence
+        // derivation does not hand aromatic atoms their H, so a
+        // pyrrole's [nH] must cross as a real H atom (the Ruby
+        // transport loss, asciichem-ruby#181).
+        let molfile = write_molfile_unlaid(&smiles_molecule("c1cc[nH]c1"), "").expect("writes");
+        let lines: Vec<&str> = molfile.lines().collect();
+        assert_eq!(lines[3], "  6  6  0  0  0  0  0  0  0  0999 V2000");
+        let hydrogen_lines: Vec<&&str> = lines[4..10]
+            .iter()
+            .filter(|line| line[31..34].trim() == "H")
+            .collect();
+        assert_eq!(hydrogen_lines.len(), 1);
+        assert!(
+            lines[4..10].iter().any(|line| line[31..34].trim() == "N"),
+            "the aromatic N carrier stays: {:?}",
+            &lines[4..10]
+        );
+        assert!(
+            lines[10..16]
+                .iter()
+                .any(|line| line.starts_with("  4  6  1  0")),
+            "the H bonds single to its carrier: {:?}",
+            &lines[10..16]
+        );
+    }
+
+    #[test]
+    fn non_aromatic_hydrogens_stay_on_the_hcount_column() {
+        // Recorded corpus molfiles pin the alanine bytes: the
+        // stereocenter's H derives by valence in every engine, so no
+        // explicit atom is added for it.
+        let molfile =
+            write_molfile_unlaid(&smiles_molecule("N[C@@H](C)C(=O)O"), "").expect("writes");
+        let lines: Vec<&str> = molfile.lines().collect();
+        assert_eq!(lines[3], "  6  5  0  0  0  0  0  0  0  0999 V2000");
+        let elements: Vec<&str> = lines[4..10]
+            .iter()
+            .map(|line| line[31..34].trim())
+            .collect();
+        assert_eq!(elements, ["N", "C", "C", "C", "O", "O"]);
+    }
+
+    #[test]
     fn the_written_molfile_carries_the_v2000_shape() {
         let molfile = write_molfile_unlaid(&molecule("C-O^-"), "").expect("writes");
         let lines: Vec<&str> = molfile.lines().collect();
