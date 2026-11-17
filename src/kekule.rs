@@ -25,7 +25,10 @@ use crate::structure::{build_graph, Edge};
 pub fn bond_kinds(molecule: &Molecule) -> HashMap<(usize, usize), String> {
     let mut kinds = HashMap::new();
     let (_atoms, edges) = build_graph(molecule);
-    let aromatic: Vec<&Edge> = edges.iter().filter(|edge| edge.kind == "aromatic").collect();
+    let aromatic: Vec<&Edge> = edges
+        .iter()
+        .filter(|edge| edge.kind == "aromatic")
+        .collect();
     if aromatic.is_empty() {
         return kinds;
     }
@@ -37,7 +40,11 @@ pub fn bond_kinds(molecule: &Molecule) -> HashMap<(usize, usize), String> {
                 if to - from != 1 {
                     continue;
                 }
-                let kind = if indices.contains(&index) { "double" } else { "single" };
+                let kind = if indices.contains(&index) {
+                    "double"
+                } else {
+                    "single"
+                };
                 kinds.insert((from, to), kind.to_string());
             }
         }
@@ -82,13 +89,23 @@ fn components<'a>(aromatic: &[&'a Edge]) -> Vec<Vec<&'a Edge>> {
 /// the text. Include before skip — the same deterministic order as
 /// the Ruby port.
 fn matching(component: &[&Edge]) -> Option<Vec<usize>> {
-    let mut atom_set: Vec<usize> = component.iter().flat_map(|edge| [edge.from, edge.to]).collect();
+    let mut atom_set: Vec<usize> = component
+        .iter()
+        .flat_map(|edge| [edge.from, edge.to])
+        .collect();
     atom_set.sort_unstable();
     atom_set.dedup();
     let mut counts: HashMap<usize, i32> = HashMap::new();
     let mut chosen: Vec<usize> = Vec::new();
     let mut found: Option<Vec<usize>> = None;
-    search(component, 0, &mut chosen, &mut counts, &atom_set, &mut found);
+    search(
+        component,
+        0,
+        &mut chosen,
+        &mut counts,
+        &atom_set,
+        &mut found,
+    );
     found
 }
 
@@ -102,7 +119,10 @@ fn search(
     found: &mut Option<Vec<usize>>,
 ) {
     if index == component.len() {
-        if atom_set.iter().all(|atom| counts.get(atom).copied().unwrap_or(0) == 1) {
+        if atom_set
+            .iter()
+            .all(|atom| counts.get(atom).copied().unwrap_or(0) == 1)
+        {
             *found = Some(chosen.clone());
         }
         return;
