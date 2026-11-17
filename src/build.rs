@@ -124,6 +124,9 @@ pub fn build_node(value: &Value) -> Result<Node> {
             &str_of(Some(text)).unwrap_or_default(),
         )));
     }
+    if let Some(reference) = hash.get("structure_reference") {
+        return build_structure_reference(reference);
+    }
     if let Some(source) = hash.get("math_source") {
         return Ok(Node::EmbeddedMath(str_of(Some(source)).unwrap_or_default()));
     }
@@ -356,6 +359,32 @@ fn build_molecule(hash: &HashMap<String, Value>) -> Result<Node> {
         properties: vec![],
         metadata: vec![],
     }))
+}
+
+/// The standalone structure reference (grammar v0.6.0, asciichem-rs#45):
+/// `@smiles("...")` standing alone is an ingest edge — the annotation
+/// carries the structure in, the model is the molecule this runtime's
+/// own SMILES reader produces. The attached form
+/// (`molecule @smiles(...)`) never reaches here: there the value rides
+/// apply_annotation as the identifier annotation it has always been.
+fn build_structure_reference(reference: &Value) -> Result<Node> {
+    let hash = expect_hash(reference)?;
+    let source = str_of(hash.get("ref_type")).unwrap_or_default();
+    if source != "smiles" {
+        return Err(BuildError::Malformed(format!(
+            "the structure reference carries no {source} source yet (v1 carries smiles)"
+        )));
+    }
+    let value = strip_quotes(&str_of(hash.get("ref_value")).unwrap_or_default());
+    let nodes = crate::smiles::parse_smiles(&value).map_err(|error| {
+        BuildError::Malformed(format!("structure reference: {}", error.message))
+    })?;
+    if nodes.len() != 1 {
+        return Err(BuildError::Malformed(
+            "the structure reference carries one connected structure (write dot-disconnected components as separate references)".into(),
+        ));
+    }
+    Ok(nodes.into_iter().next().expect("one node"))
 }
 
 fn build_annotated_molecule(hash: &HashMap<String, Value>) -> Result<Node> {
@@ -890,4 +919,64 @@ fn split_flows(label: &str, value: &str) -> Result<(String, Vec<Flow>)> {
         }
     }
     Ok((reaction, flows))
+}
+
+#[cfg(test)]
+mod structure_reference_tests {
+    use super::*;
+    use crate::model::Node;
+    use crate::parse_nodes;
+
+    #[test]
+    fn the_reference_ingests_the_molecule() {
+        let nodes = parse_nodes(r#"@smiles("c1cc[nH]c1")"#).expect("parses");
+        assert_eq!(nodes.len(), 1);
+        match nodes.first() {
+            Some(Node::Molecule(mol)) => {
+                let elements: Vec<&str> = mol
+                    .nodes
+                    .iter()
+                    .filter_map(|n| match n {
+                        Node::Atom(atom) => Some(atom.element.as_str()),
+                        _ => None,
+                    })
+                    .collect();
+                assert_eq!(elements, ["C", "C", "C", "N", "C"]);
+            }
+            other => panic!("not a molecule: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_reference_rejects_other_sources() {
+        // The grammar hard-codes the smiles word: @molfile rejects at
+        // parse time (the parsanol engine's refusal), never reaching
+        // the build layer's guidance.
+        assert!(parse_nodes(r#"@molfile("CCO")"#).is_err());
+    }
+
+    #[test]
+    fn the_reference_rejects_dot_components() {
+        let error = parse_nodes(r#"@smiles("CC.O")"#).expect_err("rejects");
+        assert!(
+            error.message.contains("one connected structure"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn the_attached_form_stays_the_identifier_annotation() {
+        let nodes = parse_nodes(r#"H_2O @smiles("CCO")"#).expect("parses");
+        match nodes.first() {
+            Some(Node::Molecule(mol)) => {
+                assert!(
+                    mol.identifiers.iter().any(|id| id.convention == "smiles"),
+                    "the attached smiles rides the identifiers: {:?}",
+                    mol.identifiers
+                );
+            }
+            other => panic!("not a molecule: {other:?}"),
+        }
+    }
 }
