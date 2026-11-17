@@ -3,7 +3,7 @@
 //! reference Text formatter rule for rule; round-trip is the
 //! contract.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 
 /// The reference's `String#to_i` for the model's numeric fields:
@@ -649,6 +649,63 @@ fn render_molecule_annotations(mol: &Molecule) -> String {
     }
 }
 
+/// The molecule body walk: atoms in node order, the pending bond
+/// token rendering before the atom it precedes (the same pending
+/// semantics the Graph builder uses), groups walked in place, and
+/// aromatic bonds rendered through the Kekulé projection map (keyed
+/// by ordered atom-index pair). Nested molecules render through their
+/// own Display — their projection is computed per molecule.
+fn render_molecule_body(nodes: &[Node], kinds: &HashMap<(usize, usize), String>) -> String {
+    let mut out = String::new();
+    let mut count = 0usize;
+    let mut pending: Option<&Bond> = None;
+    walk_body(nodes, kinds, &mut count, &mut pending, &mut out);
+    out
+}
+
+fn walk_body<'a>(
+    nodes: &'a [Node],
+    kinds: &HashMap<(usize, usize), String>,
+    count: &mut usize,
+    pending: &mut Option<&'a Bond>,
+    out: &mut String,
+) {
+    for node in nodes {
+        match node {
+            Node::Atom(atom) => {
+                if let Some(bond) = pending.take() {
+                    if *count > 0 {
+                        if let Some(direction) = &bond.direction {
+                            out.push_str(if direction == "up" { "/" } else { "\\" });
+                        } else {
+                            let key = (*count - 1, *count);
+                            let glyph = kinds
+                                .get(&key)
+                                .map(|kind| if kind == "double" { "=" } else { "-" })
+                                .unwrap_or_else(|| bond.ascii());
+                            out.push_str(glyph);
+                        }
+                    }
+                }
+                out.push_str(&atom_text(atom));
+                *count += 1;
+            }
+            Node::Bond(bond) => *pending = Some(bond),
+            Node::Group(group) => {
+                let (open, close) = group.chars();
+                out.push_str(open);
+                walk_body(&group.nodes, kinds, count, pending, out);
+                out.push_str(close);
+                if let Some(multiplicity) = &group.multiplicity {
+                    out.push_str(&format!("_{multiplicity}"));
+                }
+            }
+            Node::Molecule(mol) => out.push_str(&Node::Molecule(mol.clone()).to_string()),
+            _ => {}
+        }
+    }
+}
+
 impl fmt::Display for Node {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -677,7 +734,11 @@ impl fmt::Display for Node {
                 if let Some(coef) = &mol.coefficient {
                     out.push_str(coef);
                 }
-                out.push_str(&mol.nodes.iter().map(|n| n.to_string()).collect::<String>());
+                // Aromatic bonds render as their Kekulé projection
+                // when the ring admits one (crate::kekule); odd rings
+                // keep the aromatic glyph (the spec'd text loss).
+                let kinds = crate::kekule::bond_kinds(mol);
+                out.push_str(&render_molecule_body(&mol.nodes, &kinds));
                 out.push_str(&render_molecule_annotations(mol));
                 write!(f, "{out}")
             }
