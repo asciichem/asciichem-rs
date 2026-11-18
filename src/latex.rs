@@ -67,7 +67,13 @@ impl Latex {
                     None => String::new(),
                 };
                 let body = self.render_nodes(&mol.nodes)?;
-                let rendered = format!("{stereo}{prefix}{body}");
+                // mhchem's own output form for the phase mark.
+                let state = match mol.state.as_deref() {
+                    Some("precipitate") => "\\downarrow",
+                    Some(_) => "\\uparrow",
+                    None => "",
+                };
+                let rendered = format!("{stereo}{prefix}{body}{state}");
                 if self.inside_ce {
                     Ok(rendered)
                 } else {

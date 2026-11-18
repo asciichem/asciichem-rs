@@ -178,6 +178,10 @@ pub struct Molecule {
     pub coefficient: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stereo: Option<String>,
+    /// The molecule-level state mark (model v0.7.0): "precipitate"
+    /// or "gas".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub identifiers: Vec<Identifier>,
 }
@@ -615,6 +619,7 @@ fn molecule_to_wire(mol: &model::Molecule) -> Molecule {
             .collect(),
         coefficient: mol.coefficient.clone(),
         stereo: mol.stereo.clone(),
+        state: mol.state.clone(),
         identifiers: mol
             .identifiers
             .iter()
@@ -884,6 +889,7 @@ fn molecule_from_wire(mol: &Molecule) -> Result<model::Molecule> {
             .collect::<Result<Vec<_>>>()?,
         coefficient: mol.coefficient.clone(),
         stereo: mol.stereo.clone(),
+        state: mol.state.clone(),
         names: vec![],
         identifiers: mol
             .identifiers

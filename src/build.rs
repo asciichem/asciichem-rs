@@ -347,10 +347,26 @@ fn build_molecule(hash: &HashMap<String, Value>) -> Result<Node> {
             Some(symbol)
         }
     };
+    // The molecule-level state mark (grammar v0.7.0): the authored
+    // glyph maps to the semantic word the model carries.
+    let state = match str_of(hash.get("state")).as_deref() {
+        None | Some("") => None,
+        Some(glyph) => Some(
+            match glyph {
+                "v" => "precipitate",
+                "^" => "gas",
+                other => {
+                    return Err(BuildError::Unsupported(format!("state mark {other:?}")))
+                }
+            }
+            .to_string(),
+        ),
+    };
     Ok(Node::Molecule(Molecule {
         nodes,
         coefficient,
         stereo,
+        state,
         names: vec![],
         identifiers: vec![],
         title: None,

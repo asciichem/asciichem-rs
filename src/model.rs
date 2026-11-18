@@ -120,6 +120,12 @@ pub struct Molecule {
     pub nodes: Vec<Node>,
     pub coefficient: Option<String>,
     pub stereo: Option<String>,
+    /// The molecule-level state mark (grammar v0.7.0): the semantic
+    /// word — `"precipitate"` (`AgCl v`, typeset ↓) or `"gas"`
+    /// (`AgCl ^`, ↑). The renderers map back through
+    /// [`Molecule::state_glyph`] so text round-trips to the authored
+    /// mark.
+    pub state: Option<String>,
     pub names: Vec<Name>,
     pub identifiers: Vec<Identifier>,
     pub title: Option<String>,
@@ -132,9 +138,22 @@ pub struct Molecule {
     pub metadata: Vec<(String, String)>,
 }
 
+/// The authored glyph for a semantic state: the round-trip contract
+/// renders what the grammar reads, never the typeset arrow.
+pub const STATE_GLYPHS: [(&str, &str); 2] = [("precipitate", "v"), ("gas", "^")];
+
 impl Molecule {
     pub fn stereo_letter(&self) -> Option<&str> {
         self.stereo.as_deref()
+    }
+
+    /// The authored glyph for this molecule's state (`v` / `^`), or
+    /// `None` when the molecule carries no state mark.
+    pub fn state_glyph(&self) -> Option<&'static str> {
+        self.state
+            .as_deref()
+            .and_then(|word| STATE_GLYPHS.iter().find(|(w, _)| *w == word))
+            .map(|(_, glyph)| *glyph)
     }
 
     /// The integer stoichiometric coefficient: the authored leading
@@ -739,6 +758,10 @@ impl fmt::Display for Node {
                 // keep the aromatic glyph (the spec'd text loss).
                 let kinds = crate::kekule::bond_kinds(mol);
                 out.push_str(&render_molecule_body(&mol.nodes, &kinds));
+                if let Some(glyph) = mol.state_glyph() {
+                    out.push(' ');
+                    out.push_str(glyph);
+                }
                 out.push_str(&render_molecule_annotations(mol));
                 write!(f, "{out}")
             }
