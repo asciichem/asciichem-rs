@@ -355,9 +355,7 @@ fn build_molecule(hash: &HashMap<String, Value>) -> Result<Node> {
             match glyph {
                 "v" => "precipitate",
                 "^" => "gas",
-                other => {
-                    return Err(BuildError::Unsupported(format!("state mark {other:?}")))
-                }
+                other => return Err(BuildError::Unsupported(format!("state mark {other:?}"))),
             }
             .to_string(),
         ),
