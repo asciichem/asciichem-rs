@@ -421,6 +421,12 @@ fn segments_for_node(node: &Node) -> Vec<Segment> {
             for child in &mol.nodes {
                 segments.extend(segments_for_node(child));
             }
+            // The unicode phase arrow, the glyph MathML typesets.
+            if let Some(state) = &mol.state {
+                let glyph = if state == "precipitate" { "↓" } else { "↑" };
+                segments.push(seg(" ", 0.0));
+                segments.push(seg(glyph, 0.0));
+            }
             segments
         }
         Node::Bond(bond) => vec![seg(bond_glyph(bond.kind.as_str()), 0.0)],

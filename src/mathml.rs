@@ -192,6 +192,12 @@ fn render_molecule(mol: &crate::model::Molecule) -> Render<Element> {
     for node in &mol.nodes {
         mrow.children.push(render_node(node)?);
     }
+    // The mhchem phase arrow after the formula: precipitate ↓ (the
+    // solid falling out), gas ↑.
+    if let Some(state) = &mol.state {
+        let glyph = if state == "precipitate" { "↓" } else { "↑" };
+        mrow.children.push(Node_::Element(Element::text("mo", glyph)));
+    }
     Ok(mrow)
 }
 

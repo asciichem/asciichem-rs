@@ -506,6 +506,13 @@ fn emit_molecule(
     if let Some(total) = total_formal_charge(&atoms) {
         set_attribute(element, "formalCharge", &total)?;
     }
+    // The molecule-level state rides aci:state (the wire schema has
+    // no state field yet — the same posture as the other molecule
+    // extensions).
+    if let Some(state) = &molecule.state {
+        set_attribute(element, &format!("{ACI_PREFIX}:state"), state)?;
+        extensions = true;
+    }
     if !atoms.is_empty() {
         let array = child_element(element, "atomArray")?;
         for atom in &atoms {
@@ -1118,6 +1125,13 @@ fn read_top_level(element: &XNode) -> Result<TopLevelEntry, CmlError> {
 
 fn read_molecule(element: &XNode) -> Result<Molecule, CmlError> {
     let coefficient = element.attr("count").map(str::to_string);
+    // The state side-channel: the semantic word on aci:state. Unknown
+    // values are ignored (forward compatibility — a later vocabulary
+    // joins as data without breaking older readers).
+    let state = element
+        .attr_ns(ACI_NAMESPACE, "state")
+        .filter(|value| matches!(*value, "precipitate" | "gas"))
+        .map(str::to_string);
     let mut wire_atoms = Vec::new();
     let mut wire_bonds = Vec::new();
     let mut groups = Vec::new();
@@ -1145,6 +1159,7 @@ fn read_molecule(element: &XNode) -> Result<Molecule, CmlError> {
 
     let mut molecule = Molecule {
         coefficient,
+        state,
         ..Molecule::default()
     };
     rebuild_atoms_and_bonds(&mut molecule, wire_atoms, wire_bonds)?;
