@@ -341,3 +341,49 @@ fn formulas_are_not_structures() {
         other => panic!("expected a molecule node, got {other:?}"),
     }
 }
+
+// Directional bonds draw the E/Z layer: the substituent's side of the
+// double-bond axis is the drawn information (read against the
+// string-ordered axis — the chemomer lift's invariant). `C/C=C/C`
+// draws trans, `C/C=C\C` cis; the oracle reads the corpus-exact /b
+// signs off these drawings.
+#[test]
+fn directional_bonds_draw_the_ez_layer() {
+    fn molecule_for(smiles: &str) -> asciichem::model::Molecule {
+        match asciichem::smiles::parse_smiles(smiles)
+            .expect("parses")
+            .first()
+        {
+            Some(asciichem::model::Node::Molecule(mol)) => mol.clone(),
+            other => panic!("expected a molecule node, got {other:?}"),
+        }
+    }
+
+    fn side_products(smiles: &str) -> (f64, f64) {
+        let written = asciichem::molfile::write_molfile(&molecule_for(smiles), "").expect("writes");
+        let lines: Vec<&str> = written.lines().collect();
+        let coordinate = |index: usize| {
+            let line = lines[index + 4];
+            (
+                line[0..10].trim().parse::<f64>().expect("x"),
+                line[10..20].trim().parse::<f64>().expect("y"),
+            )
+        };
+        let side = |axis_from: usize, axis_to: usize, substituent: usize| {
+            let (ax, ay) = coordinate(axis_from);
+            let (bx, by) = coordinate(axis_to);
+            let (ux, uy) = coordinate(substituent);
+            (bx - ax) * (uy - ay) - (by - ay) * (ux - ax)
+        };
+        (side(1, 2, 0), side(1, 2, 3))
+    }
+
+    let (e_first, e_second) = side_products("C/C=C/C");
+    assert!(e_first * e_second < 0.0, "trans: opposite sides");
+    let (z_first, z_second) = side_products("C/C=C\\C");
+    assert!(z_first * z_second > 0.0, "cis: same side");
+    let (f_e_first, f_e_second) = side_products("F/C=C/F");
+    assert!(f_e_first * f_e_second < 0.0, "trans: opposite sides");
+    let (f_z_first, f_z_second) = side_products("F/C=C\\F");
+    assert!(f_z_first * f_z_second > 0.0, "cis: same side");
+}

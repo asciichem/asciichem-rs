@@ -37,6 +37,66 @@ fn bond_type(kind: &str) -> Option<i64> {
     }
 }
 
+/// Directional bonds draw the E/Z layer: a direction rides a single
+/// bond adjacent to a double bond, and the substituent's SIDE of that
+/// double bond is the drawn information. The layout's arbitrary
+/// placement carries no side semantics (the layered layout draws
+/// chains collinear), so each directional substituent is placed
+/// perpendicular to the double-bond axis, anchored at its bond
+/// partner, with the side read against the STRING-ORDERED axis (a→b)
+/// — the chemomer lift's invariant, so `C/C=C/C` draws trans and
+/// `C/C=C\C` cis regardless of which end the axis runs from. The
+/// oracle reads the corpus-exact /b signs off these drawings.
+fn lay_out_ez(edges: &[Edge], coords: &mut [(f64, f64)]) {
+    for edge in edges.iter().filter(|edge| edge.direction.is_some()) {
+        let direction = edge.direction.as_deref().unwrap_or_default();
+        let Some((axis, p_index, u_index)) = double_bond_axis(edges, edge) else {
+            continue;
+        };
+        let q_index = if axis.from == p_index {
+            axis.to
+        } else {
+            axis.from
+        };
+        let (a_index, b_index) = (p_index.min(q_index), p_index.max(q_index));
+        let (ax, ay) = coords[a_index];
+        let (bx, by) = coords[b_index];
+        let (px, py) = coords[p_index];
+        let dx = bx - ax;
+        let dy = by - ay;
+        let length = (dx * dx + dy * dy).sqrt();
+        if length < 1e-9 {
+            continue;
+        }
+        let (nx, ny) = (-dy / length, dx / length);
+        let side: f64 = (if direction == "up" { 1.0 } else { -1.0 })
+            * if u_index > a_index { 1.0 } else { -1.0 };
+        coords[u_index] = (px + nx * length * side, py + ny * length * side);
+    }
+}
+
+/// The double-bond axis a directional bond borders: which end of the
+/// single bond touches a kind-2 bond's atom, with that endpoint, the
+/// substituent (the other end), and the double-bond edge.
+fn double_bond_axis<'a>(edges: &'a [Edge], single: &Edge) -> Option<(&'a Edge, usize, usize)> {
+    for (atom, other) in [(single.from, single.to), (single.to, single.from)] {
+        let axis = edges.iter().find(|candidate| {
+            candidate.kind == "double"
+                && ((candidate.from == atom && candidate.to != other)
+                    || (candidate.to == atom && candidate.from != other))
+        });
+        if let Some(axis) = axis {
+            let substituent = if single.from == atom {
+                single.to
+            } else {
+                single.from
+            };
+            return Some((axis, atom, substituent));
+        }
+    }
+    None
+}
+
 /// V2000 bond stereo code per model bond kind (0 = not stereo).
 fn bond_stereo(kind: &str) -> i64 {
     match kind {
@@ -524,6 +584,7 @@ fn write_molfile_with(molecule: &Molecule, name: &str, layout: bool) -> Result<S
         };
         coords.push((x, y));
     }
+    lay_out_ez(&edges, &mut coords);
 
     let mut out = String::new();
     out.push_str(name);
