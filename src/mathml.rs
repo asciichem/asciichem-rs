@@ -196,7 +196,8 @@ fn render_molecule(mol: &crate::model::Molecule) -> Render<Element> {
     // solid falling out), gas ↑.
     if let Some(state) = &mol.state {
         let glyph = if state == "precipitate" { "↓" } else { "↑" };
-        mrow.children.push(Node_::Element(Element::text("mo", glyph)));
+        mrow.children
+            .push(Node_::Element(Element::text("mo", glyph)));
     }
     Ok(mrow)
 }
