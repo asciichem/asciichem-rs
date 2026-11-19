@@ -212,7 +212,15 @@ fn render_atom(atom: &crate::model::Atom) -> Element {
         multi
             .children
             .push(Node_::Element(Element::new("mprescripts")));
-        multi.children.push(Node_::Element(Element::new("none")));
+        // The prescript pair is (left-subscript, left-superscript):
+        // the atomic number sits under the mass number — none when
+        // absent.
+        multi
+            .children
+            .push(Node_::Element(match atom.atomic_number.as_deref() {
+                Some(z) => Element::text("mn", z),
+                None => Element::new("none"),
+            }));
         multi
             .children
             .push(Node_::Element(Element::text("mn", isotope)));

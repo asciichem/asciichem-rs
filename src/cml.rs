@@ -250,7 +250,8 @@ fn child_element(
 
 /// Atom-attribute channel: model field name → wire attribute name
 /// (without the `aci:` prefix), in wire order.
-const ATOM_FIELDS: [(&str, &str); 4] = [
+const ATOM_FIELDS: [(&str, &str); 5] = [
+    ("atomic_number", "atomicNumber"),
     ("oxidation_state", "oxidationState"),
     ("lone_pairs", "lonePairs"),
     ("radical_electrons", "radicalElectrons"),
@@ -801,6 +802,7 @@ impl<'a> MoleculeWalker<'a> {
             formal_charge: atom.charge.clone(),
             count,
             extensions: [
+                atom.atomic_number.clone(),
                 atom.oxidation_state.clone(),
                 atom.lone_pairs.map(|count| count.to_string()),
                 atom.radical_electrons.map(|count| count.to_string()),
@@ -1191,6 +1193,9 @@ fn read_atom(element: &XNode) -> Result<RestoredAtom, CmlError> {
         atom: Atom {
             element: element_type.to_string(),
             isotope: element.attr("isotope").map(str::to_string),
+            atomic_number: element
+                .attr_ns(ACI_NAMESPACE, "atomicNumber")
+                .map(str::to_string),
             subscript,
             charge: element.attr("formalCharge").map(str::to_string),
             oxidation_state: element

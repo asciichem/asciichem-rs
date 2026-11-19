@@ -180,6 +180,9 @@ fn render_atom(atom: &crate::model::Atom) -> String {
     if let Some(isotope) = &atom.isotope {
         parts.push(format!("<sup>{}</sup>", escape(isotope)));
     }
+    if let Some(z) = &atom.atomic_number {
+        parts.push(format!("<sub>{}</sub>", escape(z)));
+    }
     parts.push(escape(&atom.element));
     if let Some(sub) = &atom.subscript {
         parts.push(format!("<sub>{}</sub>", escape(sub)));

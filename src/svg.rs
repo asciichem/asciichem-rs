@@ -520,6 +520,9 @@ fn atom_segments(atom: &model::Atom) -> Vec<Segment> {
     if let Some(isotope) = &atom.isotope {
         segments.push(seg(isotope, -6.0));
     }
+    if let Some(z) = &atom.atomic_number {
+        segments.push(seg(z, -6.0));
+    }
     segments.push(seg(&atom.element, 0.0));
     if let Some(sub) = &atom.subscript {
         segments.push(seg(sub, 5.0));
