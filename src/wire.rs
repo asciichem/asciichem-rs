@@ -203,6 +203,8 @@ pub struct Atom {
     pub element: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub isotope: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub atomic_number: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub charge: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -512,6 +514,7 @@ fn atom_to_wire(atom: &model::Atom) -> Atom {
         tag: AtomTag::Atom,
         element: atom.element.clone(),
         isotope: atom.isotope.clone(),
+        atomic_number: atom.atomic_number.clone(),
         charge: atom.charge.clone(),
         subscript: atom.subscript.clone(),
         oxidation_state: atom.oxidation_state.clone(),
@@ -743,6 +746,7 @@ pub fn node_from_wire(wire: &WireNode) -> Result<Node> {
         WireNode::Atom(atom) => Node::Atom(model::Atom {
             element: atom.element.clone(),
             isotope: atom.isotope.clone(),
+            atomic_number: atom.atomic_number.clone(),
             subscript: atom.subscript.clone(),
             superscript: None,
             charge: atom.charge.clone(),
@@ -810,6 +814,7 @@ pub fn node_from_wire(wire: &WireNode) -> Result<Node> {
                 .map(|atom| model::Atom {
                     element: atom.element.clone(),
                     isotope: atom.isotope.clone(),
+                    atomic_number: atom.atomic_number.clone(),
                     subscript: atom.subscript.clone(),
                     superscript: None,
                     charge: atom.charge.clone(),

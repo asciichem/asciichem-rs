@@ -217,6 +217,7 @@ fn build_atom(value: &Value) -> Result<Node> {
     Ok(Node::Atom(Atom {
         element,
         isotope: strip_marker(str_of(hash.get("isotope")).as_deref(), None),
+        atomic_number: strip_marker(str_of(hash.get("atomic_number")).as_deref(), None),
         subscript: strip_marker(str_of(hash.get("subscript")).as_deref(), Some('_')),
         superscript,
         charge,

@@ -205,6 +205,9 @@ fn render_atom(atom: &crate::model::Atom) -> String {
     if let Some(isotope) = &atom.isotope {
         parts.push(format!("^{}", wrap(isotope)));
     }
+    if let Some(z) = &atom.atomic_number {
+        parts.push(format!("_{z}"));
+    }
     parts.push(wrap(&atom.element));
     if let Some(sub) = &atom.subscript {
         parts.push(mhchem_subscript(sub));

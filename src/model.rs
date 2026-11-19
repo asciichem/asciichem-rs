@@ -31,6 +31,9 @@ pub(crate) fn leading_integer(value: &str) -> i64 {
 pub struct Atom {
     pub element: String,
     pub isotope: Option<String>,
+    /// The stated atomic number (grammar v0.8.0): `"90"` in
+    /// `^227_90Th` — mhchem's left-subscript isotope component.
+    pub atomic_number: Option<String>,
     pub subscript: Option<String>,
     /// Raw superscript — set only when the superscript is neither a
     /// charge nor an oxidation state (those two carry the info).
@@ -584,6 +587,9 @@ fn atom_text(atom: &Atom) -> String {
     }
     if let Some(iso) = &atom.isotope {
         parts.push(format!("^{iso}"));
+    }
+    if let Some(z) = &atom.atomic_number {
+        parts.push(format!("_{z}"));
     }
     parts.push(atom.element.clone());
     if let Some(sub) = &atom.subscript {
