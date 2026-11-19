@@ -259,7 +259,7 @@ const ATOM_FIELDS: [(&str, &str); 5] = [
 ];
 
 /// Top-level channel element names.
-const TOP_LEVEL_ELEMENTS: [&str; 8] = [
+const TOP_LEVEL_ELEMENTS: [&str; 9] = [
     "electronConfiguration",
     "embeddedMath",
     "text",
@@ -268,6 +268,7 @@ const TOP_LEVEL_ELEMENTS: [&str; 8] = [
     "spectrum",
     "calculation",
     "zmatrix",
+    "adduct",
 ];
 
 /// The per-reaction conditions channel: model side → wire attribute
@@ -475,6 +476,7 @@ fn top_level_payload(node: &Node) -> Result<(&'static str, String), CmlError> {
         Node::Spectrum(_) => Ok(("spectrum", node.to_string())),
         Node::Calculation(_) => Ok(("calculation", node.to_string())),
         Node::ZMatrix(_) => Ok(("zmatrix", node.to_string())),
+        Node::Adduct(_) => Ok(("adduct", node.to_string())),
         other => Err(CmlError::Unsupported(other.diagnostic_label())),
     }
 }

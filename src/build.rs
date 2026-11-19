@@ -8,9 +8,9 @@ use std::collections::HashMap;
 use parsanol::portable::transform::Value;
 
 use crate::model::{
-    Atom, Bond, Calculation, CalculationProperty, Conditions, Crystal, ElectronConfiguration, Flow,
-    Group, Identifier, Mechanism, MechanismStep, Molecule, Name, Node, Reaction, ReactionCascade,
-    Spectrum, SpectrumPeak, ZMatrix, ZRow,
+    Adduct, Atom, Bond, Calculation, CalculationProperty, Conditions, Crystal,
+    ElectronConfiguration, Flow, Group, Identifier, Mechanism, MechanismStep, Molecule, Name, Node,
+    Reaction, ReactionCascade, Spectrum, SpectrumPeak, ZMatrix, ZRow,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -163,6 +163,15 @@ pub fn build_node(value: &Value) -> Result<Node> {
     }
     if let Some(cascade) = hash.get("cascade") {
         return build_cascade(cascade);
+    }
+    if let Some(inner) = hash.get("adduct") {
+        return match inner {
+            Value::Hash(adduct_hash) => build_adduct(adduct_hash),
+            other => Err(BuildError::Malformed(format!("adduct {other:?}"))),
+        };
+    }
+    if hash.contains_key("units") && hash.contains_key("components") {
+        return build_adduct(hash);
     }
     if hash.contains_key("units") {
         return build_molecule(hash);
@@ -323,6 +332,58 @@ fn lewis_count(value: Option<&Value>) -> Option<u32> {
         Some(len)
     } else {
         None
+    }
+}
+
+fn build_adduct(hash: &HashMap<String, Value>) -> Result<Node> {
+    // The middle-dot connective (grammar v0.9.0): the lead molecule's
+    // captures ride under the `molecule` key; each component carries
+    // a semantics-free `dot` plus its own `molecule`.
+    let lead = match hash.get("molecule") {
+        Some(Value::Hash(mol)) => build_molecule_from_hash(mol)?,
+        Some(other) => {
+            return Err(BuildError::Malformed(format!(
+                "adduct lead molecule {other:?}"
+            )))
+        }
+        None => {
+            return Err(BuildError::Malformed(
+                "adduct without a lead molecule".into(),
+            ))
+        }
+    };
+    let mut components = vec![lead];
+    if let Some(Value::Array(items)) = hash.get("components") {
+        for item in items {
+            match item {
+                Value::Hash(component) => match component.get("molecule") {
+                    Some(Value::Hash(mol)) => {
+                        components.push(build_molecule_from_hash(mol)?);
+                    }
+                    Some(other) => {
+                        return Err(BuildError::Malformed(format!(
+                            "adduct component molecule {other:?}"
+                        )))
+                    }
+                    None => {
+                        return Err(BuildError::Malformed(
+                            "adduct component without a molecule".into(),
+                        ))
+                    }
+                },
+                other => return Err(BuildError::Malformed(format!("adduct component {other:?}"))),
+            }
+        }
+    }
+    Ok(Node::Adduct(Adduct { components }))
+}
+
+fn build_molecule_from_hash(hash: &HashMap<String, Value>) -> Result<Molecule> {
+    match build_molecule(hash)? {
+        Node::Molecule(molecule) => Ok(molecule),
+        other => Err(BuildError::Malformed(format!(
+            "adduct component is not a molecule: {other:?}"
+        ))),
     }
 }
 

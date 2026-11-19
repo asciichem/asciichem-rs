@@ -496,12 +496,22 @@ impl ZMatrix {
     }
 }
 
+/// The adduct: the middle-dot connective between molecules at the
+/// formula level (grammar v0.9.0 — `CuSO4 . 5H2O` hydrates). N-ary:
+/// the components map one-to-one onto the InChI multi-component
+/// layers, and each component's coefficient carries its multiplicity.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Adduct {
+    pub components: Vec<Molecule>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Node {
     Atom(Atom),
     Bond(Bond),
     Group(Group),
     Molecule(Molecule),
+    Adduct(Adduct),
     Reaction(Reaction),
     ReactionCascade(ReactionCascade),
     ElectronConfiguration(ElectronConfiguration),
@@ -552,6 +562,9 @@ impl Node {
             Node::Bond(_) => "Bond".to_string(),
             Node::Group(_) => "Group".to_string(),
             Node::Molecule(_) => "Molecule".to_string(),
+            Node::Adduct(adduct) => {
+                format!("Adduct({} components)", adduct.components.len())
+            }
             Node::Reaction(reaction) => reaction.diagnostic_label(),
             Node::ReactionCascade(_) => "Reaction Cascade".to_string(),
             Node::ElectronConfiguration(_) => "Electron Configuration".to_string(),
@@ -770,6 +783,30 @@ impl fmt::Display for Node {
                 }
                 out.push_str(&render_molecule_annotations(mol));
                 write!(f, "{out}")
+            }
+            Node::Adduct(adduct) => {
+                let parts: Vec<String> = adduct
+                    .components
+                    .iter()
+                    .map(|m| {
+                        let mut out = String::new();
+                        if let Some(letter) = m.stereo_letter() {
+                            out.push_str(&format!("({letter})-"));
+                        }
+                        if let Some(coef) = &m.coefficient {
+                            out.push_str(coef);
+                        }
+                        let kinds = crate::kekule::bond_kinds(m);
+                        out.push_str(&render_molecule_body(&m.nodes, &kinds));
+                        if let Some(glyph) = m.state_glyph() {
+                            out.push(' ');
+                            out.push_str(glyph);
+                        }
+                        out.push_str(&render_molecule_annotations(m));
+                        out
+                    })
+                    .collect();
+                write!(f, "{}", parts.join(" . "))
             }
             Node::Reaction(reaction) => {
                 let left = render_terms(&reaction.reactants);
