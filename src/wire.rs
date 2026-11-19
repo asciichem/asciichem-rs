@@ -120,6 +120,7 @@ pub enum ZMatrixTag {
 #[serde(untagged)]
 pub enum WireNode {
     Formula(Formula),
+    Adduct(Adduct),
     Molecule(Molecule),
     Group(Group),
     Atom(Atom),
@@ -142,6 +143,7 @@ impl WireNode {
     pub fn type_name(&self) -> &'static str {
         match self {
             WireNode::Formula(_) => "formula",
+            WireNode::Adduct(_) => "adduct",
             WireNode::Molecule(_) => "molecule",
             WireNode::Group(_) => "group",
             WireNode::Atom(_) => "atom",
@@ -167,6 +169,19 @@ pub struct Formula {
     #[serde(rename = "type")]
     pub tag: FormulaTag,
     pub nodes: Vec<WireNode>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Adduct {
+    #[serde(rename = "type")]
+    pub tag: AdductTag,
+    pub components: Vec<WireNode>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AdductTag {
+    #[serde(rename = "adduct")]
+    Adduct,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -460,6 +475,14 @@ pub fn formula_to_wire(nodes: &[Node]) -> Result<WireNode> {
 
 fn node_to_wire(node: &Node) -> Result<WireNode> {
     Ok(match node {
+        Node::Adduct(adduct) => WireNode::Adduct(Adduct {
+            tag: AdductTag::Adduct,
+            components: adduct
+                .components
+                .iter()
+                .map(|component| node_to_wire(&Node::Molecule(component.clone())))
+                .collect::<Result<Vec<_>>>()?,
+        }),
         Node::Molecule(mol) => WireNode::Molecule(molecule_to_wire(mol)),
         Node::Group(group) => WireNode::Group(Group {
             tag: GroupTag::Group,
@@ -733,6 +756,19 @@ pub fn node_from_wire(wire: &WireNode) -> Result<Node> {
                 "formula node outside the wire root".into(),
             ))
         }
+        WireNode::Adduct(adduct) => Node::Adduct(model::Adduct {
+            components: adduct
+                .components
+                .iter()
+                .map(|component| match node_from_wire(component) {
+                    Ok(Node::Molecule(mol)) => Ok(mol),
+                    Ok(other) => Err(WireError::Malformed(format!(
+                        "adduct component is not a molecule: {other:?}"
+                    ))),
+                    Err(error) => Err(error),
+                })
+                .collect::<Result<Vec<_>>>()?,
+        }),
         WireNode::Molecule(mol) => Node::Molecule(molecule_from_wire(mol)?),
         WireNode::Group(group) => Node::Group(model::Group {
             nodes: group

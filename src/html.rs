@@ -36,6 +36,14 @@ fn render_node(node: &Node) -> Result<String, crate::ParseError> {
             };
             Ok(format!("{}{body}{}{suffix}", escape(open), escape(close)))
         }
+        Node::Adduct(adduct) => {
+            let parts = adduct
+                .components
+                .iter()
+                .map(|m| render_node(&Node::Molecule(m.clone())))
+                .collect::<Result<Vec<_>, crate::ParseError>>()?;
+            Ok(parts.join("&middot;"))
+        }
         Node::Molecule(mol) => {
             let prefix = match &mol.coefficient {
                 Some(coef) if !coef.is_empty() => escape(coef),

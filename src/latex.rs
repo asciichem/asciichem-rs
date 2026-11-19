@@ -57,6 +57,14 @@ impl Latex {
                 };
                 Ok(format!("{open}{body}{close}{suffix}"))
             }
+            Node::Adduct(adduct) => {
+                let parts = adduct
+                    .components
+                    .iter()
+                    .map(|m| self.render_node(&Node::Molecule(m.clone())))
+                    .collect::<Result<Vec<_>, crate::ParseError>>()?;
+                Ok(parts.join("\\cdot "))
+            }
             Node::Molecule(mol) => {
                 let prefix = match &mol.coefficient {
                     Some(coef) if !coef.is_empty() => coef.clone(),

@@ -153,6 +153,17 @@ fn render_node(node: &Node) -> Render<Node_> {
         Node::Bond(bond) => Ok(Node_::Element(Element::text("mo", bond.entity()))),
         Node::Group(group) => Ok(Node_::Element(render_group(group)?)),
         Node::Molecule(mol) => Ok(Node_::Element(render_molecule(mol)?)),
+        Node::Adduct(adduct) => {
+            let mut mrow = Element::new("mrow");
+            for (index, component) in adduct.components.iter().enumerate() {
+                if index > 0 {
+                    mrow.children.push(Node_::Element(Element::text("mo", "·")));
+                }
+                mrow.children
+                    .push(render_node(&Node::Molecule(component.clone()))?);
+            }
+            Ok(Node_::Element(mrow))
+        }
         Node::Reaction(reaction) => Ok(Node_::Element(render_reaction(reaction)?)),
         Node::ReactionCascade(cascade) => Ok(Node_::Element(render_cascade(cascade)?)),
         Node::ElectronConfiguration(ec) => Ok(Node_::Element(render_electron_configuration(ec))),

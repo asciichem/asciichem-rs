@@ -410,6 +410,17 @@ fn segments_for_node(node: &Node) -> Vec<Segment> {
             }
             segments
         }
+        Node::Adduct(adduct) => {
+            let mut segments: Vec<Segment> = Vec::new();
+            for (index, component) in adduct.components.iter().enumerate() {
+                if index > 0 {
+                    segments.push(seg(" · ", 0.0));
+                }
+                let owned = Node::Molecule(component.clone());
+                segments.extend(segments_for_node(&owned));
+            }
+            segments
+        }
         Node::Molecule(mol) => {
             let mut segments: Vec<Segment> = Vec::new();
             if let Some(letter) = mol.stereo_letter() {
