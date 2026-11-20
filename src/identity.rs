@@ -142,12 +142,14 @@ mod tests {
     #[test]
     fn ascii_branch_input_fragments_exactly_as_the_ruby_reference() {
         // ASCII branch groups carry a leading bond token; the walk's
-        // pending-bond semantics chain them linearly — EXACTLY as the
-        // Ruby reference's Structure::Graph does (verified against the
-        // gem: atoms C,H,H,H,C,O,O with the same edges). Branched
-        // structures are SMILES/molfile-ingested; ASCII branch input
-        // fragments the same way on both sides. The gate pins the
-        // PARITY so a silent divergence can never ship.
+        // BRANCH-ROOT BINDING (asciichem-ruby#208's reference) attaches
+        // each branch to the atom before the group and resumes the
+        // continuation from that root — EXACTLY as the Ruby
+        // reference's Structure::Graph does (verified against the gem:
+        // atoms C,H,H,H,C,O,O with the same edges). The methyl H's
+        // bond to the carbon, the carbonyl double on C4 — the
+        // chemically correct graph. The gate pins the PARITY so a
+        // silent divergence can never ship.
         let (atoms, edges) =
             structure::build_graph_strict(&molecule("C(-H)(-H)(-H)-C(=O)-O")).expect("builds");
         assert_eq!(
@@ -162,11 +164,11 @@ mod tests {
             shape,
             [
                 (0, "single", 1),
-                (1, "single", 2),
-                (2, "single", 3),
-                (3, "single", 4),
+                (0, "single", 2),
+                (0, "single", 3),
+                (0, "single", 4),
                 (4, "double", 5),
-                (5, "single", 6),
+                (4, "single", 6),
             ]
         );
     }
