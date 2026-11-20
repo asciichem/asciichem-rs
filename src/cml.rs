@@ -250,12 +250,15 @@ fn child_element(
 
 /// Atom-attribute channel: model field name → wire attribute name
 /// (without the `aci:` prefix), in wire order.
-const ATOM_FIELDS: [(&str, &str); 5] = [
+const ATOM_FIELDS: [(&str, &str); 6] = [
     ("atomic_number", "atomicNumber"),
     ("oxidation_state", "oxidationState"),
     ("lone_pairs", "lonePairs"),
     ("radical_electrons", "radicalElectrons"),
     ("ring_closures", "ringClosures"),
+    // The SMILES parity mark rides as stored TH1/TH2 (the wire
+    // carries the mark, not derived R/S).
+    ("chirality", "atomParity"),
 ];
 
 /// Top-level channel element names.
@@ -809,6 +812,7 @@ impl<'a> MoleculeWalker<'a> {
                 atom.lone_pairs.map(|count| count.to_string()),
                 atom.radical_electrons.map(|count| count.to_string()),
                 atom.ring_closures.clone(),
+                atom.chirality.clone(),
             ],
         });
         self.last_atom = self.atoms.last().map(|atom| atom.id.clone());
@@ -1208,6 +1212,9 @@ fn read_atom(element: &XNode) -> Result<RestoredAtom, CmlError> {
             ring_closures: element
                 .attr_ns(ACI_NAMESPACE, "ringClosures")
                 .map(str::to_string),
+            chirality: element
+                .attr_ns(ACI_NAMESPACE, "atomParity")
+                .map(str::to_string),
             ..Atom::default()
         },
     })
@@ -1279,36 +1286,53 @@ fn rebuild_atoms_and_bonds(
         .map(|restored| restored.id.clone())
         .collect();
     let mut nodes: Vec<Node> = wire_atoms
-        .into_iter()
-        .map(|restored| Node::Atom(restored.atom))
+        .iter()
+        .map(|restored| Node::Atom(restored.atom.clone()))
         .collect();
     if wire_bonds.is_empty() {
         molecule.nodes = nodes;
         return Ok(());
     }
     let position = |id: &str| ids.iter().position(|bound| bound.as_deref() == Some(id));
-    let mut placed: Vec<(&RestoredBond, usize, usize)> = wire_bonds
+    // Digit pairing is the ring-transport signal (aci:ringClosures on
+    // both endpoints — the digits restore onto the atoms and re-spell
+    // the bond). Every other wire bond renders positionally, INCLUDING
+    // continuation bonds whose endpoints sit across a group gap in the
+    // branch-projection shape — the positional-gap guess dropped those.
+    let mut digits_by_id: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
+    for restored in &wire_atoms {
+        if let (Some(id), Some(digits)) = (&restored.id, &restored.atom.ring_closures) {
+            digits_by_id.insert(id.as_str(), digits.as_str());
+        }
+    }
+    let shares_digit = |a: &str, b: &str| -> bool {
+        let first = digits_by_id
+            .get(a)
+            .map(|digits| digits.chars().collect::<Vec<_>>());
+        let second = digits_by_id
+            .get(b)
+            .map(|digits| digits.chars().collect::<Vec<_>>());
+        match (first, second) {
+            (Some(first), Some(second)) => first.iter().any(|digit| second.contains(digit)),
+            _ => false,
+        }
+    };
+    let mut placed: Vec<(&RestoredBond, usize, bool)> = wire_bonds
         .iter()
         .map(|bond| {
             let mut positions: Vec<usize> =
                 bond.refs.iter().filter_map(|id| position(id)).collect();
             positions.sort_unstable();
             let later = positions.last().copied().unwrap_or(0);
-            let span = positions
-                .last()
-                .zip(positions.first())
-                .map(|(a, b)| a - b)
-                .unwrap_or(0);
-            (bond, later, span)
+            let ring = bond.refs.len() == 2 && shares_digit(&bond.refs[0], &bond.refs[1]);
+            (bond, later, ring)
         })
         .collect();
     // Descending later position so earlier insertions don't shift the
     // pending ones.
     placed.sort_by(|(_, a, _), (_, b, _)| b.cmp(a));
-    for (bond, later, span) in placed {
-        // A ring bond connects non-adjacent atoms; its endpoints span
-        // a gap, and the aci:ringClosures digits re-spell it.
-        if span > 1 {
+    for (bond, later, ring) in placed {
+        if ring {
             continue;
         }
         nodes.insert(

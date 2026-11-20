@@ -321,6 +321,7 @@ pub fn parse_molfile(text: &str) -> Result<Molecule> {
                     to: *to,
                     kind: kind.clone(),
                     direction: None,
+                    shape: None,
                 });
             }
         }
@@ -522,6 +523,7 @@ fn write_molfile_with(molecule: &Molecule, name: &str, layout: bool) -> Result<S
                 ..Atom::default()
             });
             extra_edges.push(Edge {
+                shape: None,
                 from: index,
                 to: target,
                 kind: "single".into(),

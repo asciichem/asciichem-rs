@@ -35,11 +35,12 @@ struct SmilesParser<'a> {
     chars: Vec<char>,
     pos: usize,
     atoms: Vec<Atom>,
-    adjacency: Vec<BTreeMap<usize, String>>,
+    adjacency: Vec<BTreeMap<usize, (String, bool, &'static str)>>,
     open_rings: HashMap<String, usize>,
     parent: Option<usize>,
     pending_kind: Option<String>,
     pending_direction: Option<String>,
+    pending_shape: Option<&'static str>,
     edge_directions: HashMap<(usize, usize), String>,
 }
 
@@ -55,6 +56,7 @@ impl<'a> SmilesParser<'a> {
             parent: None,
             pending_kind: None,
             pending_direction: None,
+            pending_shape: None,
             edge_directions: HashMap::new(),
         }
     }
@@ -84,6 +86,7 @@ impl<'a> SmilesParser<'a> {
         self.parent = None;
         self.pending_kind = None;
         self.pending_direction = None;
+        self.pending_shape = None;
 
         self.chain()?;
 
@@ -102,7 +105,7 @@ impl<'a> SmilesParser<'a> {
 
         let mut edges = Vec::new();
         for (index, neighbours) in self.adjacency.iter().enumerate() {
-            for (to, kind) in neighbours {
+            for (to, (kind, _ring, shape)) in neighbours {
                 if *to > index {
                     let direction = self
                         .edge_directions
@@ -113,6 +116,7 @@ impl<'a> SmilesParser<'a> {
                         to: *to,
                         kind: kind.clone(),
                         direction,
+                        shape: Some(shape),
                     });
                 }
             }
@@ -165,11 +169,16 @@ impl<'a> SmilesParser<'a> {
         let saved_direction = self.pending_direction.clone();
         self.pending_kind = kind;
         self.pending_direction = direction;
+        // The branch's FIRST edge is branch-shaped; the tree's inner
+        // chain stays chain-shaped (the linearizer groups only the
+        // branch edge's subtree).
+        self.pending_shape = Some("branch");
         self.chain()?;
         self.expect(')')?;
         self.parent = saved_parent;
         self.pending_kind = saved_pending;
         self.pending_direction = saved_direction;
+        self.pending_shape = None;
         Ok(())
     }
 
@@ -192,7 +201,7 @@ impl<'a> SmilesParser<'a> {
                     });
                 }
             }
-            self.add_edge(opener, parent, kind);
+            self.add_edge(opener, parent, kind, Some("ring"));
         } else {
             self.open_rings.insert(digit, parent);
         }
@@ -205,7 +214,12 @@ impl<'a> SmilesParser<'a> {
         self.atoms.push(atom);
         self.adjacency.push(BTreeMap::new());
         if let Some(parent) = self.parent {
-            self.add_edge(parent, index, self.pending_kind.clone());
+            self.add_edge(
+                parent,
+                index,
+                self.pending_kind.clone(),
+                self.pending_shape.or(Some("chain")),
+            );
             if let Some(direction) = &self.pending_direction {
                 self.edge_directions
                     .insert((parent.min(index), parent.max(index)), direction.clone());
@@ -214,13 +228,25 @@ impl<'a> SmilesParser<'a> {
         self.parent = Some(index);
         self.pending_kind = None;
         self.pending_direction = None;
+        self.pending_shape = None;
         Ok(())
     }
 
-    fn add_edge(&mut self, from: usize, to: usize, explicit: Option<String>) {
+    fn add_edge(
+        &mut self,
+        from: usize,
+        to: usize,
+        explicit: Option<String>,
+        shape: Option<&'static str>,
+    ) {
         let kind = explicit.unwrap_or_else(|| self.default_kind(from, to));
-        self.adjacency[from].insert(to, kind.clone());
-        self.adjacency[to].insert(from, kind);
+        let entry = (
+            kind.clone(),
+            shape == Some("ring"),
+            shape.unwrap_or("chain"),
+        );
+        self.adjacency[from].insert(to, entry.clone());
+        self.adjacency[to].insert(from, entry);
     }
 
     fn default_kind(&self, from: usize, to: usize) -> String {
