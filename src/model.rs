@@ -272,6 +272,8 @@ pub struct Reaction {
 impl Reaction {
     fn arrow_ascii(&self) -> &'static str {
         match self.arrow.as_str() {
+            "donation" => "<=>+",
+            "removal" => "<=>-",
             "reverse" => "<-",
             "equilibrium" => "<=>",
             "resonance" => "<->",
@@ -289,6 +291,8 @@ impl Reaction {
     /// the MathML/HTML entity form).
     pub(crate) fn arrow_entity(&self) -> &'static str {
         match self.arrow.as_str() {
+            "donation" => "\u{21CC}\u{207A}",
+            "removal" => "\u{21CC}\u{207B}",
             "reverse" => "\u{2190}",
             "equilibrium" => "\u{21CC}",
             "resonance" => "\u{2194}",

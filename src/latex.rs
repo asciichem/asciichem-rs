@@ -257,6 +257,8 @@ fn wrap(value: &str) -> String {
 fn arrow_for(arrow: &str) -> &'static str {
     match arrow {
         "reverse" => "<-",
+        "donation" => "<=>+",
+        "removal" => "<=>-",
         "equilibrium" => "<=>",
         "resonance" => "<->",
         _ => "->",

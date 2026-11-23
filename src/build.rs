@@ -57,7 +57,9 @@ const BOND_KEYS: [(&str, &str); 10] = [
     ("single", "single"),
 ];
 
-const ARROW_KINDS: [(&str, &str); 4] = [
+const ARROW_KINDS: [(&str, &str); 6] = [
+    ("<=>+", "donation"),
+    ("<=>-", "removal"),
     ("<=>", "equilibrium"),
     ("<->", "resonance"),
     ("->", "forward"),

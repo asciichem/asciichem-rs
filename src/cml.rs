@@ -1468,7 +1468,7 @@ fn read_reaction(element: &XNode) -> Result<Reaction, CmlError> {
         .filter(|wire| {
             matches!(
                 wire.as_str(),
-                "forward" | "reverse" | "equilibrium" | "resonance"
+                "forward" | "reverse" | "equilibrium" | "resonance" | "donation" | "removal"
             )
         })
         .unwrap_or_else(|| "forward".to_string());
