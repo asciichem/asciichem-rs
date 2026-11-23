@@ -129,6 +129,11 @@ pub struct Molecule {
     /// [`Molecule::state_glyph`] so text round-trips to the authored
     /// mark.
     pub state: Option<String>,
+    /// The molecule-level phase (grammar v0.11.0): the semantic word —
+    /// `"aqueous"` (`NaCl(aq)`), `"liquid"`, `"solid"`, `"gas"`. The
+    /// renderers map back through [`Molecule::phase_spelling`] so text
+    /// round-trips to the authored form.
+    pub phase: Option<String>,
     pub names: Vec<Name>,
     pub identifiers: Vec<Identifier>,
     pub title: Option<String>,
@@ -145,6 +150,15 @@ pub struct Molecule {
 /// renders what the grammar reads, never the typeset arrow.
 pub const STATE_GLYPHS: [(&str, &str); 2] = [("precipitate", "v"), ("gas", "^")];
 
+/// The authored spelling for a semantic phase — the tight
+/// parenthesised mhchem form the grammar reads.
+pub const PHASE_SPELLINGS: [(&str, &str); 4] = [
+    ("aqueous", "(aq)"),
+    ("liquid", "(l)"),
+    ("solid", "(s)"),
+    ("gas", "(g)"),
+];
+
 impl Molecule {
     pub fn stereo_letter(&self) -> Option<&str> {
         self.stereo.as_deref()
@@ -157,6 +171,16 @@ impl Molecule {
             .as_deref()
             .and_then(|word| STATE_GLYPHS.iter().find(|(w, _)| *w == word))
             .map(|(_, glyph)| *glyph)
+    }
+
+    /// The authored spelling for this molecule's phase (`(aq)` /
+    /// `(l)` / `(s)` / `(g)`), or `None` when the molecule carries no
+    /// phase.
+    pub fn phase_spelling(&self) -> Option<&'static str> {
+        self.phase
+            .as_deref()
+            .and_then(|word| PHASE_SPELLINGS.iter().find(|(w, _)| *w == word))
+            .map(|(_, spelling)| *spelling)
     }
 
     /// The integer stoichiometric coefficient: the authored leading
@@ -781,6 +805,9 @@ impl fmt::Display for Node {
                 // keep the aromatic glyph (the spec'd text loss).
                 let kinds = crate::kekule::bond_kinds(mol);
                 out.push_str(&render_molecule_body(&mol.nodes, &kinds));
+                if let Some(spelling) = mol.phase_spelling() {
+                    out.push_str(spelling);
+                }
                 if let Some(glyph) = mol.state_glyph() {
                     out.push(' ');
                     out.push_str(glyph);
@@ -802,6 +829,9 @@ impl fmt::Display for Node {
                         }
                         let kinds = crate::kekule::bond_kinds(m);
                         out.push_str(&render_molecule_body(&m.nodes, &kinds));
+                        if let Some(spelling) = m.phase_spelling() {
+                            out.push_str(spelling);
+                        }
                         if let Some(glyph) = m.state_glyph() {
                             out.push(' ');
                             out.push_str(glyph);
