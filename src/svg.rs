@@ -619,6 +619,8 @@ fn bond_glyph(kind: &str) -> &'static str {
 
 fn arrow_glyph(kind: &str) -> &'static str {
     match kind {
+        "donation" => "⇌⁺",
+        "removal" => "⇌⁻",
         "reverse" => "←",
         "equilibrium" => "⇌",
         "resonance" => "↔",
