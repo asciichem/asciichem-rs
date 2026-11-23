@@ -197,6 +197,10 @@ pub struct Molecule {
     /// or "gas".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<String>,
+    /// The molecule-level phase (model v0.11.0): "aqueous", "liquid",
+    /// "solid", or "gas".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub identifiers: Vec<Identifier>,
 }
@@ -646,6 +650,7 @@ fn molecule_to_wire(mol: &model::Molecule) -> Molecule {
         coefficient: mol.coefficient.clone(),
         stereo: mol.stereo.clone(),
         state: mol.state.clone(),
+        phase: mol.phase.clone(),
         identifiers: mol
             .identifiers
             .iter()
@@ -931,6 +936,7 @@ fn molecule_from_wire(mol: &Molecule) -> Result<model::Molecule> {
         coefficient: mol.coefficient.clone(),
         stereo: mol.stereo.clone(),
         state: mol.state.clone(),
+        phase: mol.phase.clone(),
         names: vec![],
         identifiers: mol
             .identifiers

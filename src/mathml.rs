@@ -203,6 +203,17 @@ fn render_molecule(mol: &crate::model::Molecule) -> Render<Element> {
     for node in &mol.nodes {
         mrow.children.push(render_node(node)?);
     }
+    // mhchem typesets the phase as upright text, tight after the
+    // formula.
+    if let Some(phase) = &mol.phase {
+        let spelling = crate::model::PHASE_SPELLINGS
+            .iter()
+            .find(|(w, _)| *w == phase)
+            .map(|(_, s)| *s)
+            .ok_or_else(|| crate::build::BuildError::Unsupported(format!("phase {phase:?}")))?;
+        mrow.children
+            .push(Node_::Element(Element::text("mtext", spelling)));
+    }
     // The mhchem phase arrow after the formula: precipitate ↓ (the
     // solid falling out), gas ↑.
     if let Some(state) = &mol.state {

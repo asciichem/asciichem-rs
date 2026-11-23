@@ -424,11 +424,28 @@ fn build_molecule(hash: &HashMap<String, Value>) -> Result<Node> {
             .to_string(),
         ),
     };
+    // The molecule-level phase (grammar v0.11.0): the tight
+    // parenthesised spelling maps to the semantic word the model
+    // carries.
+    let phase = match str_of(hash.get("phase")).as_deref() {
+        None | Some("") => None,
+        Some(token) => Some(
+            match token {
+                "aq" => "aqueous",
+                "l" => "liquid",
+                "s" => "solid",
+                "g" => "gas",
+                other => return Err(BuildError::Unsupported(format!("phase {other:?}"))),
+            }
+            .to_string(),
+        ),
+    };
     Ok(Node::Molecule(Molecule {
         nodes,
         coefficient,
         stereo,
         state,
+        phase,
         names: vec![],
         identifiers: vec![],
         title: None,
