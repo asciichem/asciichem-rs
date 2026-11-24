@@ -50,6 +50,18 @@ fn render_golden_contract() {
                 let Some(golden) = case.get(field).and_then(|value| value.as_str()) else {
                     continue;
                 };
+                // referenceRender rows embed the reference's math-engine
+                // output (Plurimath); embedded math degrades here by
+                // contract (corpus schema: "the skip is the documented
+                // degradation, not a silent drop").
+                if case
+                    .get("referenceRender")
+                    .and_then(|value| value.as_bool())
+                    == Some(true)
+                {
+                    skipped.push(format!("{id}: {field} reference-render row"));
+                    continue;
+                }
                 let Ok(nodes) = asciichem::parse_nodes(input) else {
                     skipped.push(format!("{id}: parse declined"));
                     continue;
