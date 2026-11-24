@@ -7,6 +7,8 @@
 use std::fs;
 use std::path::PathBuf;
 
+type Renderer = fn(&[asciichem::model::Node]) -> Result<String, asciichem::ParseError>;
+
 fn corpus_dir() -> Option<PathBuf> {
     let dir = std::env::var("ASCIICHEM_CORPUS")
         .map(PathBuf::from)
