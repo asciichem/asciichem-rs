@@ -42,10 +42,7 @@ fn render_golden_contract() {
                 .get("input")
                 .and_then(|value| value.as_str())
                 .unwrap_or("");
-            let renderers: [(
-                &str,
-                fn(&[asciichem::model::Node]) -> Result<String, asciichem::ParseError>,
-            ); 2] = [
+            let renderers: [(&str, Renderer); 2] = [
                 ("html", asciichem::html::render_formula),
                 ("latex", asciichem::latex::render_formula),
             ];
