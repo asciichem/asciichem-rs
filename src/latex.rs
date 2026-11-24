@@ -75,13 +75,22 @@ impl Latex {
                     None => String::new(),
                 };
                 let body = self.render_nodes(&mol.nodes)?;
+                // mhchem typesets the phase as upright text, tight to
+                // the units, before the state arrows.
+                let phase = match mol.phase.as_deref() {
+                    Some("aqueous") => "\\text{(aq)}",
+                    Some("liquid") => "\\text{(l)}",
+                    Some("solid") => "\\text{(s)}",
+                    Some("gas") => "\\text{(g)}",
+                    _ => "",
+                };
                 // mhchem's own output form for the phase mark.
                 let state = match mol.state.as_deref() {
                     Some("precipitate") => "\\downarrow",
                     Some(_) => "\\uparrow",
                     None => "",
                 };
-                let rendered = format!("{stereo}{prefix}{body}{state}");
+                let rendered = format!("{stereo}{prefix}{body}{phase}{state}");
                 if self.inside_ce {
                     Ok(rendered)
                 } else {

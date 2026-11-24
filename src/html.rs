@@ -54,13 +54,21 @@ fn render_node(node: &Node) -> Result<String, crate::ParseError> {
                 None => String::new(),
             };
             let body = render_nodes(&mol.nodes)?;
+            // The phase spelling, tight to the units.
+            let phase = match mol.phase.as_deref() {
+                Some("aqueous") => "(aq)",
+                Some("liquid") => "(l)",
+                Some("solid") => "(s)",
+                Some("gas") => "(g)",
+                _ => "",
+            };
             // The phase arrow as its HTML entity.
             let state = match mol.state.as_deref() {
                 Some("precipitate") => "&darr;",
                 Some(_) => "&uarr;",
                 None => "",
             };
-            Ok(format!("{stereo}{prefix}{body}{state}"))
+            Ok(format!("{stereo}{prefix}{body}{phase}{state}"))
         }
         Node::Reaction(reaction) => {
             let left = render_terms(&reaction.reactants)?;

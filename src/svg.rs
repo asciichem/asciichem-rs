@@ -432,6 +432,10 @@ fn segments_for_node(node: &Node) -> Vec<Segment> {
             for child in &mol.nodes {
                 segments.extend(segments_for_node(child));
             }
+            // The phase spelling, tight to the units.
+            if let Some(spelling) = mol.phase_spelling() {
+                segments.push(seg(spelling, 0.0));
+            }
             // The unicode phase arrow, the glyph MathML typesets.
             if let Some(state) = &mol.state {
                 let glyph = if state == "precipitate" { "↓" } else { "↑" };
