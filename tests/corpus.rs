@@ -542,11 +542,17 @@ fn cml_three_way_round_trip_contract() {
             .map(|node| node.to_string())
             .collect::<Vec<_>>()
             .join(" ");
-        if text == input {
+        // An alias-spelling input lands on the canonical text (the
+        // fixture's `text` field records it; defaults to the input).
+        let expected = case
+            .get("text")
+            .and_then(|value| value.as_str())
+            .unwrap_or(input);
+        if text == expected {
             round_trips += 1;
         } else {
             failures.push(format!(
-                "{id}: three-way round-trip mismatch\n  in: {input:?}\n out: {text:?}"
+                "{id}: three-way round-trip mismatch\n  in: {input:?}\nout: {text:?}"
             ));
         }
     }
