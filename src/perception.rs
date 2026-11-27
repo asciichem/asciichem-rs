@@ -61,19 +61,84 @@ pub fn neighbours(atom_index: usize, edges: &[Edge]) -> Vec<usize> {
 }
 
 /// Hydrogen-counting sum: aromatic bonds order as 1.5 (Hückel).
-pub fn hydrogen_valence_sum(atom_index: usize, edges: &[Edge]) -> f64 {
+///
+/// When a detected aromatic five-membered ring is supplied, its
+/// lone-pair donation donor counts its ring bonds as the kekulized
+/// singles the donation model implies (pyrrole N: two singles + one
+/// H = valence 3 → one implicit hydrogen; furan O: two singles =
+/// valence 2 → none) — the blanket 1.5 sum over-values a donor
+/// (3.0 against valence 2 or 3) and would decline exactly the
+/// heteroatoms the donation rule exists to answer.
+pub fn hydrogen_valence_sum(
+    atom_index: usize,
+    edges: &[Edge],
+    ring: Option<&[usize]>,
+    atoms: Option<&[Atom]>,
+) -> f64 {
+    let donor = ring
+        .and_then(|ring| {
+            atoms.map(|atoms| donation_donor(&atoms[atom_index], atoms, atom_index, edges, ring))
+        })
+        .unwrap_or(false);
     let mut sum = 0.0;
     for edge in edges {
         if edge.from != atom_index && edge.to != atom_index {
             continue;
         }
         sum += if edge.kind == "aromatic" {
-            AROMATIC_H_ORDER
+            if donor {
+                1.0
+            } else {
+                AROMATIC_H_ORDER
+            }
         } else {
             bond_order(&edge.kind)
         };
     }
     sum
+}
+
+/// The donation donor of an aromatic five-membered ring: a
+/// lone-pair-donating element with no in-system double bond of its
+/// own (its 2π come from the lone pair), uncharged, with no stated
+/// hydrogens (a stated count is the source's word — never
+/// re-derived), and **unique among nitrogens** — the donation is one
+/// lone pair per ring, so a plain `n` beside another donor element
+/// (imidazole's `n` beside an `[nH]`, oxazole's `n` beside the `o`)
+/// is pyridine-type: it keeps the blanket Hückel sum and answers
+/// zero. O and S are the preferred donors and do not defer (oxazole's
+/// `o` stays the donor beside its `n`).
+fn donation_donor(
+    atom: &Atom,
+    atoms: &[Atom],
+    atom_index: usize,
+    edges: &[Edge],
+    ring: &[usize],
+) -> bool {
+    if ring.len() != 5 || !ring.contains(&atom_index) {
+        return false;
+    }
+    if atom.charge.is_some() || atom.hydrogens.is_some() {
+        return false;
+    }
+    if !LONE_PAIR_DONORS.contains(&atom.element.as_str()) {
+        return false;
+    }
+    let cyclic: HashSet<usize> = ring.iter().copied().collect();
+    if in_system_double(atom_index, edges, &cyclic) {
+        return false;
+    }
+    if atom.element == "N" {
+        for other_index in ring {
+            if *other_index == atom_index {
+                continue;
+            }
+            if LONE_PAIR_DONORS.contains(&atoms[*other_index].element.as_str()) {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 /// Sum of explicit bond orders at an atom (wedge/hash/dative/wavy

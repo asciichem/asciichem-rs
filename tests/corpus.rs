@@ -337,13 +337,20 @@ fn perception_contract() {
         };
         let (atoms, edges) = asciichem::structure::build_graph(molecule);
 
+        let rings = asciichem::perception::aromatic_rings(&atoms, &edges);
         let hydrogens: Vec<Option<u32>> = atoms
             .iter()
             .enumerate()
             .map(|(index, atom)| {
+                let ring = rings.iter().find(|r| r.contains(&index));
                 asciichem::perception::implicit_hydrogens(
                     atom,
-                    asciichem::perception::hydrogen_valence_sum(index, &edges),
+                    asciichem::perception::hydrogen_valence_sum(
+                        index,
+                        &edges,
+                        ring.map(|r| r.as_slice()),
+                        Some(&atoms),
+                    ),
                 )
             })
             .collect();

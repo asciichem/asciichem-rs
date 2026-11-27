@@ -617,7 +617,10 @@ fn write_molecule(molecule: &Molecule) -> Result<String> {
             if atoms[*atom].aromatic != Some(true) {
                 perceived_hydrogens.insert(
                     *atom,
-                    implicit_hydrogens(&atoms[*atom], hydrogen_valence_sum(*atom, &edges)),
+                    implicit_hydrogens(
+                        &atoms[*atom],
+                        hydrogen_valence_sum(*atom, &edges, Some(&ring), Some(&atoms)),
+                    ),
                 );
             }
         }
