@@ -7,8 +7,15 @@
 //! unambiguously requires isotope tables), bond type 4 is aromatic
 //! and marks its atoms, and bond stereo codes 1/6 become wedge/hash.
 //!
-//! Tetrahedral chirality crosses as a WEDGE on the stereocentre's
-//! first bond (TH1 → up, TH2 → down), oriented centre → neighbour:
+//! Tetrahedral chirality crosses as a WEDGE/HASH on the stereocentre's
+//! first claimable plain single bond, oriented centre → neighbour. In
+//! layout mode the claim is geometry-aware (the same fitted
+//! `synthesize_stereo_wedges` core the SVG renderer uses — a wedge
+//! that contradicts the drawn geometry reads as the mirror enantiomer,
+//! #86) and the laid coordinates emit in the molfile's y-rising
+//! convention so the drawing the file describes is the drawing the
+//! renderer draws. The unlaid path (all-zero coordinates) keeps the
+//! blind template: TH1 → up, TH2 → down, no geometry to contradict —
 //! the oracle ignores the V2000 atom-parity field for 2D input, so
 //! the parity field alone never carries stereo. Directional bonds
 //! (`/`, `\`, E/Z) have no V2000 field: the model's bond direction is
@@ -492,6 +499,7 @@ pub fn write_molfile_unlaid(molecule: &Molecule, name: &str) -> Result<String> {
 
 fn write_molfile_with(molecule: &Molecule, name: &str, layout: bool) -> Result<String> {
     let (mut atoms, mut edges) = build_graph_strict(molecule)?;
+    let base_edges = edges.len();
     if edges.is_empty() && atoms.len() > 1 {
         return Err(ParseError {
             message: "molecule has no bonds — a formula is not a structure".into(),
@@ -588,6 +596,21 @@ fn write_molfile_with(molecule: &Molecule, name: &str, layout: bool) -> Result<S
     }
     lay_out_ez(&edges, &mut coords);
 
+    // The drawing convention (see the wedge claim below): a pure-laid
+    // drawing is computed in SVG orientation and emitted y-rising; an
+    // all-authored drawing keeps its coordinates verbatim; mixed and
+    // unlaid drawings emit verbatim and claim wedges blind.
+    let pure_laid = layout
+        && layout_aligned
+        && atoms[..base_atoms]
+            .iter()
+            .all(|atom| atom.x2.is_none() && atom.y2.is_none());
+    let all_authored = layout
+        && layout_aligned
+        && atoms[..base_atoms]
+            .iter()
+            .all(|atom| atom.x2.is_some() && atom.y2.is_some());
+
     let mut out = String::new();
     out.push_str(name);
     out.push('\n');
@@ -602,6 +625,24 @@ fn write_molfile_with(molecule: &Molecule, name: &str, layout: bool) -> Result<S
 
     for (index, atom) in atoms.iter().enumerate() {
         let (x, y) = coords[index];
+        // Pure-laid drawings speak SVG orientation (y falls); the
+        // molfile drawing convention is y rising. Emitting the layout's
+        // y verbatim would describe the MIRROR drawing — for a chiral
+        // molecule the engine would read the opposite enantiomer of
+        // whatever the wedge claims. Authored drawings keep their
+        // coordinates verbatim (the re-emission contract, and the
+        // claims already ran through the mirrored variant). The flip
+        // is laid-mode only, and -0.0 normalizes to 0.
+        let y = if pure_laid {
+            let flipped = -y;
+            if flipped == 0.0 {
+                0.0
+            } else {
+                flipped
+            }
+        } else {
+            y
+        };
         let z = atom.z2.unwrap_or(0.0);
         let parity = CHIRALITY_PARITY
             .iter()
@@ -615,29 +656,77 @@ fn write_molfile_with(molecule: &Molecule, name: &str, layout: bool) -> Result<S
         out.push('\n');
     }
 
-    // One wedge per chiral atom, on its first bond, oriented
-    // centre → neighbour: TH1 rises (stereo 1), TH2 falls (6).
+    // One wedge per chiral atom, on its first claimable plain single
+    // bond, oriented centre → neighbour. The claim is GEOMETRY-AWARE
+    // in layout mode — svg::synthesize_stereo_wedges, the same fitted
+    // core the structural SVG renderer uses, over the exact
+    // coordinates this file draws — because a wedge that contradicts
+    // the drawn geometry makes the engine read the mirror enantiomer
+    // (#86). The drawing convention decides the variant: a pure-laid
+    // drawing is computed in SVG orientation (y falls) and EMITTED in
+    // the molfile's y-rising convention; an all-authored drawing keeps
+    // its coordinates verbatim and claims through the mirrored
+    // variant, which is what keeps write∘parse∘write a byte fixed
+    // point. A mixed or unlaid drawing keeps the zero-coordinate
+    // template (TH1 rises, TH2 falls): no coherent geometry exists to
+    // reason against, and the unlaid path is the Ruby identity seam's
+    // corpus-gated contract.
     let mut wedges: HashMap<usize, (usize, usize, i64)> = HashMap::new();
-    for (index, atom) in atoms.iter().enumerate() {
-        let Some(stereo) = (match atom.chirality.as_deref() {
-            Some("TH1") => Some(1),
-            Some("TH2") => Some(6),
-            _ => None,
-        }) else {
-            continue;
+    if pure_laid || all_authored {
+        let graph_view = layout::LayoutGraph {
+            atoms: atoms[..base_atoms].to_vec(),
+            bonds: edges[..base_edges]
+                .iter()
+                .map(|edge| layout::LayoutBond {
+                    from: edge.from,
+                    to: edge.to,
+                    bond: crate::model::Bond {
+                        kind: edge.kind.clone(),
+                        direction: edge.direction.clone(),
+                    },
+                })
+                .collect(),
+            ring_bonds: Vec::new(),
         };
-        let Some((edge_index, other)) = edges.iter().enumerate().find_map(|(edge_index, edge)| {
-            if edge.from == index {
-                Some((edge_index, edge.to))
-            } else if edge.to == index {
-                Some((edge_index, edge.from))
-            } else {
-                None
-            }
-        }) else {
-            continue;
+        let points: Vec<layout::Point> = coords[..base_atoms]
+            .iter()
+            .map(|&(x, y)| layout::Point { x, y })
+            .collect();
+        let claims = if pure_laid {
+            crate::svg::synthesize_stereo_wedges(&graph_view, &points)
+        } else {
+            crate::svg::synthesize_stereo_wedges_mirrored(&graph_view, &points)
         };
-        wedges.insert(edge_index, (index, other, stereo));
+        for (edge_index, claim) in claims {
+            wedges.insert(
+                edge_index,
+                (claim.center, claim.neighbor, if claim.hash { 6 } else { 1 }),
+            );
+        }
+    } else {
+        for (index, atom) in atoms.iter().enumerate() {
+            let Some(stereo) = (match atom.chirality.as_deref() {
+                Some("TH1") => Some(1),
+                Some("TH2") => Some(6),
+                _ => None,
+            }) else {
+                continue;
+            };
+            let Some((edge_index, other)) =
+                edges.iter().enumerate().find_map(|(edge_index, edge)| {
+                    if edge.from == index {
+                        Some((edge_index, edge.to))
+                    } else if edge.to == index {
+                        Some((edge_index, edge.from))
+                    } else {
+                        None
+                    }
+                })
+            else {
+                continue;
+            };
+            wedges.insert(edge_index, (index, other, stereo));
+        }
     }
 
     for (edge_index, edge) in edges.iter().enumerate() {

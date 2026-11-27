@@ -196,6 +196,28 @@ pub fn synthesize_stereo_wedges(
     graph: &layout::LayoutGraph,
     positions: &[layout::Point],
 ) -> std::collections::HashMap<usize, SynthesizedWedge> {
+    synthesize_stereo_wedges_in(graph, positions, false)
+}
+
+/// The mirrored-convention variant: the point set speaks the molfile
+/// drawing convention (y rising) instead of the SVG's (y falling).
+/// Mirroring the point set flips every orientation sign the core
+/// reasons about, so the fitted targets invert with it — the glyphs
+/// describe the same hands the unmirrored call would on the vertically
+/// mirrored point set, which is what makes write∘parse∘write a byte
+/// fixed point for chiral molecules (#86).
+pub fn synthesize_stereo_wedges_mirrored(
+    graph: &layout::LayoutGraph,
+    positions: &[layout::Point],
+) -> std::collections::HashMap<usize, SynthesizedWedge> {
+    synthesize_stereo_wedges_in(graph, positions, true)
+}
+
+fn synthesize_stereo_wedges_in(
+    graph: &layout::LayoutGraph,
+    positions: &[layout::Point],
+    invert: bool,
+) -> std::collections::HashMap<usize, SynthesizedWedge> {
     let mut claimed: std::collections::HashMap<usize, SynthesizedWedge> =
         std::collections::HashMap::new();
     let mut used: std::collections::HashSet<usize> = std::collections::HashSet::new();
@@ -290,11 +312,13 @@ pub fn synthesize_stereo_wedges(
         // four-drawn-ligand construction (one apex) are different
         // point sets, so TH1's orientation target differs per
         // construction — each fitted against the engine, TH2 negated.
+        // The mirrored convention inverts every target.
+        let (th1_stated, th1_drawn) = if invert { (-1.0, 1.0) } else { (1.0, -1.0) };
         let target: f64 = match (parity, stated_h) {
-            ("TH1", true) => 1.0,
-            ("TH1", false) => -1.0,
-            ("TH2", true) => -1.0,
-            _ => 1.0,
+            ("TH1", true) => th1_stated,
+            ("TH1", false) => th1_drawn,
+            ("TH2", true) => -th1_stated,
+            _ => -th1_drawn,
         };
         used.insert(bond_index);
         claimed.insert(

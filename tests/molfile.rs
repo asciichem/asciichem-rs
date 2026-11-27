@@ -96,9 +96,20 @@ fn writer_emits_stereo_codes_one_and_six() {
         .iter()
         .position(|line| line.ends_with("V2000"))
         .expect("counts line");
-    // TH1 → wedge (type 1, stereo 1) on the stereocentre's first bond,
-    // oriented centre → neighbour; TH2 would fall (stereo 6).
-    assert_eq!(lines[counts + 4], "  1  2  1  1  0  0  0  0  0  0  0");
+    // The laid drawing is geometry-aware (#86): a one-ligand chirality
+    // carrier is not a drawable tetrahedron, so the laid path declines
+    // — no wedge that would contradict a drawing it cannot reason
+    // about.
+    assert_eq!(lines[counts + 4], "  1  2  1  0  0  0  0  0  0  0  0");
+
+    // The unlaid path keeps the zero-coordinate template: TH1 rises
+    // (stereo 1) on the stereocentre's first bond, oriented centre →
+    // neighbour — the Ruby identity seam's corpus-gated contract.
+    let unlaid = asciichem::molfile::write_molfile_unlaid(&molecule, "").expect("writes");
+    assert!(
+        unlaid.contains("  1  2  1  1  0  0  0  0  0  0  0"),
+        "{unlaid}"
+    );
 
     // And the hash kind round-trips: a hash edge writes code 6.
     let hash_molecule = Molecule {
