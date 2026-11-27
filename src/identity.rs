@@ -53,7 +53,12 @@ pub fn derive_from_molfile(molfile: &str) -> chemomer::Result<Identity> {
 /// Derives the identity of a model molecule: model → V2000 molfile →
 /// engine, with the deterministic layout (achiral identities are
 /// coordinate-blind; a chiral model's wedge needs non-degenerate
-/// drawn positions to read at all). The molfile pipe speaks one error
+/// drawn positions to read at all). The laid emission is
+/// geometry-aware (the fitted `synthesize_stereo_wedges` core, y-up
+/// molfile convention): the wedge agrees with the drawn hand, so the
+/// pipe and the engine's own SMILES read derive the SAME enantiomer —
+/// the two paths agree on the pairs (`the derive_and_smiles_paths_agree`
+/// test). The molfile pipe speaks one error
 /// type (the Ruby engine's single `AsciiChem::Error` shape), so the
 /// writer's rejections map onto it.
 pub fn derive(molecule: &model::Molecule) -> chemomer::Result<Identity> {
@@ -66,11 +71,12 @@ pub fn derive(molecule: &model::Molecule) -> chemomer::Result<Identity> {
 /// edge end to end. The native [`crate::smiles`] parser gates
 /// acceptance and builds the model; the identity itself comes from the
 /// engine's own SMILES read, whose phase-2 stereo synthesis is
-/// corpus-fitted (the alanine enantiomers derive the recorded bytes —
-/// the molfile pipe's wedge reads against the layout's drawn
-/// handedness, which is layout-engine-specific and would flip the
-/// pair). No database round-trip; the identity comes from the local
-/// read.
+/// corpus-fitted (the alanine enantiomers derive the recorded bytes).
+/// The molfile pipe agrees with this path on tetrahedral input (the
+/// laid wedge is geometry-aware over the same fitted selection); the
+/// engine's own read stays the SMILES edge's identity source — one
+/// parser hop fewer, and the corpus gates it directly. No database
+/// round-trip; the identity comes from the local read.
 pub fn derive_from_smiles(smiles: &str) -> chemomer::Result<Identity> {
     let nodes =
         crate::smiles::parse_smiles(smiles).map_err(|error| chemomer::Error::new(error.message))?;
@@ -218,19 +224,40 @@ mod tests {
     }
 
     #[test]
-    fn wedge_stereo_crosses_through_the_bond_stereo_code() {
-        // The TH1/TH2 wedge lands on the stereocentre's first bond
-        // (up/down in the bond block's stereo field). Propane has no
-        // stereocentre, so the identifiers agree — but the AuxInfo
-        // echo records the wedge orientation the engine read (rB:P1
-        // up vs rB:N1 down), proving the wedge crossed. Real stereo
-        // separation gates through the corpus identity-stereo family,
-        // whose recorded wedged molfiles carry the t/m layers.
-        let th1 = identity("C@TH1-C-C");
-        let th2 = identity("C@TH2-C-C");
-        assert_eq!(th1.inchi, th2.inchi);
-        assert!(th1.aux.contains("rB:P1"), "TH1 wedge up: {}", th1.aux);
-        assert!(th2.aux.contains("rB:N1"), "TH2 wedge down: {}", th2.aux);
+    fn wedge_stereo_separates_real_centres_and_the_paths_agree() {
+        // The laid pipe's wedge is geometry-aware (#86): a real
+        // tetrahedral centre separates (AuxInfo records the wedge
+        // orientation the engine read), the enantiomer pair splits,
+        // and the molfile pipe derives the SAME identity as the
+        // engine's own SMILES read — the two paths agree on every
+        // seed. Non-tetrahedral chirality carriers decline the wedge
+        // rather than contradict their own drawing: the propane TH1/TH2
+        // spellings draw flat, so no wedge crosses (the engine sees
+        // one achiral propane either way).
+        for smiles in [
+            "C[C@H](O)N",
+            "C[C@@H](O)N",
+            "N[C@@H](C)C(=O)O",
+            "N[C@H](C)C(=O)O",
+            "F[C@](Cl)(Br)I",
+            "F[C@@](Cl)(Br)I",
+        ] {
+            let source = derive_from_smiles(smiles).expect("source identity");
+            let drawn = derive(&smiles_molecule(smiles))
+                .unwrap_or_else(|error| panic!("{smiles}: the pipe derives: {error}"));
+            assert_eq!(source.inchi, drawn.inchi, "{smiles}: the pipe disagrees");
+        }
+        let th1 = derive(&smiles_molecule("F[C@](Cl)(Br)I")).expect("derives");
+        let th2 = derive(&smiles_molecule("F[C@@](Cl)(Br)I")).expect("derives");
+        assert_ne!(th1.inchi, th2.inchi, "the enantiomers separate");
+        assert_ne!(th1.aux, th2.aux, "the wedge orientations differ");
+        let th1_flat = identity("C@TH1-C-C");
+        let th2_flat = identity("C@TH2-C-C");
+        assert_eq!(
+            th1_flat.inchi, th2_flat.inchi,
+            "flat chirality carriers decline the wedge"
+        );
+        assert_eq!(th1_flat.aux, th2_flat.aux, "no wedge crossed either way");
     }
 
     #[test]
