@@ -66,10 +66,18 @@ pub fn render_formula(nodes: &[Node]) -> String {
         .iter()
         .zip(&boxes)
         .map(|(svg, (x, y, w, h))| {
+            // The child's content is drawn in its own viewBox coordinates
+            // (negative-origin for most layouts). Carrying the child's
+            // viewBox maps that content into the placed viewport; without
+            // it, raw coordinates paint outside the outer viewBox.
             format!(
-                "<svg x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" overflow=\"visible\">{}</svg>",
+                "<svg x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" viewBox=\"{} {} {} {}\" overflow=\"visible\">{}</svg>",
                 round(x - bounds.0),
                 round(y - bounds.1),
+                round(*w),
+                round(*h),
+                round(*x),
+                round(*y),
                 round(*w),
                 round(*h),
                 strip_outer(svg)
@@ -101,10 +109,11 @@ fn render_molecule(mol: &model::Molecule) -> String {
         return linear_document(&[segments_for_node(&owned)]);
     }
     let (graph, positions) = layout::layout_molecule(mol);
+    let wedges = synthesize_stereo_wedges(&graph, &positions);
     let mut elements: Vec<String> = Vec::new();
     let mut drawn = std::collections::HashSet::new();
 
-    for bond in &graph.bonds {
+    for (bond_index, bond) in graph.bonds.iter().enumerate() {
         let key = if bond.from < bond.to {
             (bond.from, bond.to)
         } else {
@@ -113,11 +122,26 @@ fn render_molecule(mol: &model::Molecule) -> String {
         if !drawn.insert(key) {
             continue;
         }
-        elements.push(bond_element(
-            positions[bond.from],
-            positions[bond.to],
-            &bond.bond,
-        ));
+        if let Some(wedge) = wedges.get(&bond_index) {
+            // The synthesized glyph points centre → neighbour: narrow
+            // at the stereocentre, widening (or hatching) toward the
+            // ligand.
+            let kind = if wedge.hash { "hash" } else { "wedge" };
+            elements.push(bond_element(
+                positions[wedge.center],
+                positions[wedge.neighbor],
+                &model::Bond {
+                    kind: kind.to_string(),
+                    direction: None,
+                },
+            ));
+        } else {
+            elements.push(bond_element(
+                positions[bond.from],
+                positions[bond.to],
+                &bond.bond,
+            ));
+        }
     }
 
     for (i, atom) in graph.atoms.iter().enumerate() {
@@ -145,6 +169,157 @@ fn render_molecule(mol: &model::Molecule) -> String {
 
 fn render_linear_node(node: &Node) -> String {
     linear_document(&[segments_for_node(node)])
+}
+
+// Tetrahedral wedge synthesis: a chirality-carrying atom (the SMILES
+// @/@@ parity, TH1/TH2 in the model) with no authored wedge/hash of
+// its own draws one synthesized wedge/hash so enantiomers render as
+// distinguishable drawings. The model's parity is defined against the
+// reference ligand order — the stated hydrogens first, then the
+// neighbours in bond order (the SMILES writer's chirality order) —
+// and the synthesized wedge realizes that hand against the laid-out
+// neighbour geometry: the wedged ligand rises out of the plane (hash:
+// sinks), the stated hydrogen sits at the tetrahedral completion
+// opposite the drawn neighbours, and the wedge/hash choice is the one
+// whose 3D orientation matches the parity. Synthesis declines (the
+// drawing renders exactly as without it) rather than guesses: atoms
+// whose ligand set is not tetrahedral, atoms with no claimable plain
+// single bond, and degenerate (zero-volume) drawn geometries.
+#[derive(Debug, Clone, Copy)]
+pub struct SynthesizedWedge {
+    pub center: usize,
+    pub neighbor: usize,
+    pub hash: bool,
+}
+
+pub fn synthesize_stereo_wedges(
+    graph: &layout::LayoutGraph,
+    positions: &[layout::Point],
+) -> std::collections::HashMap<usize, SynthesizedWedge> {
+    let mut claimed: std::collections::HashMap<usize, SynthesizedWedge> =
+        std::collections::HashMap::new();
+    let mut used: std::collections::HashSet<usize> = std::collections::HashSet::new();
+
+    for (index, atom) in graph.atoms.iter().enumerate() {
+        let Some(parity) = atom.chirality.as_deref() else {
+            continue;
+        };
+        if parity != "TH1" && parity != "TH2" {
+            continue;
+        }
+        let stated_h = matches!(atom.hydrogens, Some(count) if count > 0);
+
+        let mut neighbors: Vec<usize> = Vec::new();
+        for bond in &graph.bonds {
+            if bond.from == index {
+                neighbors.push(bond.to);
+            } else if bond.to == index {
+                neighbors.push(bond.from);
+            }
+        }
+        let mut distinct = neighbors.clone();
+        distinct.sort_unstable();
+        distinct.dedup();
+        if distinct.len() != neighbors.len() {
+            continue;
+        }
+        if neighbors.len() + usize::from(stated_h) != 4 {
+            continue;
+        }
+
+        // Claim this centre's wedge on the first incident bond (bond
+        // order) that is a plain single and not already carrying
+        // another centre's synthesized wedge; authored wedge/hash
+        // bonds are rendered verbatim and never claimed.
+        let mut bond_index = None;
+        let mut neighbor = None;
+        for (i, bond) in graph.bonds.iter().enumerate() {
+            if used.contains(&i) || bond.bond.kind != "single" {
+                continue;
+            }
+            if bond.from != index && bond.to != index {
+                continue;
+            }
+            bond_index = Some(i);
+            neighbor = Some(if bond.from == index {
+                bond.to
+            } else {
+                bond.from
+            });
+            break;
+        }
+        let Some(bond_index) = bond_index else {
+            continue;
+        };
+        let neighbor = neighbor.expect("incident bond");
+        let Some(wedge_slot) = neighbors.iter().position(|n| *n == neighbor) else {
+            continue;
+        };
+
+        let center = positions[index];
+        // Tetrahedral completion: the stated H sits opposite the drawn
+        // neighbours' centroid.
+        let hx = -neighbors
+            .iter()
+            .map(|n| positions[*n].x - center.x)
+            .sum::<f64>();
+        let hy = -neighbors
+            .iter()
+            .map(|n| positions[*n].y - center.y)
+            .sum::<f64>();
+
+        // Ligand points in reference order under a plain wedge (the
+        // wedged ligand at +z toward the viewer, the stated H
+        // opposite); a hash flips both out-of-plane signs, which
+        // inverts the orientation exactly once.
+        let mut points: Vec<(f64, f64, f64)> = Vec::new();
+        if stated_h {
+            points.push((hx, hy, -1.0));
+        }
+        for (i, n) in neighbors.iter().enumerate() {
+            let z = if i == wedge_slot { 1.0 } else { 0.0 };
+            points.push((positions[*n].x - center.x, positions[*n].y - center.y, z));
+        }
+        let sign = orientation(&points).signum();
+        if sign == 0.0 {
+            continue;
+        }
+
+        // The fitted polarity (tests/stereo_depiction.rs): the
+        // stated-H construction (two out-of-plane ligands) and the
+        // four-drawn-ligand construction (one apex) are different
+        // point sets, so TH1's orientation target differs per
+        // construction — each fitted against the engine, TH2 negated.
+        let target: f64 = match (parity, stated_h) {
+            ("TH1", true) => 1.0,
+            ("TH1", false) => -1.0,
+            ("TH2", true) => -1.0,
+            _ => 1.0,
+        };
+        used.insert(bond_index);
+        claimed.insert(
+            bond_index,
+            SynthesizedWedge {
+                center: index,
+                neighbor,
+                hash: sign != target,
+            },
+        );
+    }
+
+    claimed
+}
+
+// The orientation sign of a tetrahedral ligand set: the scalar triple
+// product of the first three ligand vectors against the fourth.
+fn orientation(points: &[(f64, f64, f64)]) -> f64 {
+    let (a, b, c, d) = (points[0], points[1], points[2], points[3]);
+    let u = [b.0 - a.0, b.1 - a.1, b.2 - a.2];
+    let v = [c.0 - a.0, c.1 - a.1, c.2 - a.2];
+    let w = [d.0 - a.0, d.1 - a.1, d.2 - a.2];
+    (u[1] * v[2] - u[2] * v[1]) * w[0]
+        + (u[2] * v[0] - u[0] * v[2]) * w[1]
+        + (u[0] * v[1] - u[1] * v[0]) * w[2]
 }
 
 #[allow(clippy::too_many_lines)]

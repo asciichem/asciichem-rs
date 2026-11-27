@@ -1818,3 +1818,58 @@ fn rinchi_family_contract() {
         failures.join("\n")
     );
 }
+
+// The depiction family gates the structural SVG bytes: every row's
+// golden embeds the reference render (the TS implementation's
+// structural-svg), re-rendered byte-exactly here. The enantiomer-pair
+// rows are the wedge-synthesis acceptance (asciichem-rs#82) — the
+// drawn polarity itself gates through tests/stereo_depiction.rs
+// against the engine.
+#[test]
+fn depiction_svg_contract() {
+    let Some(cases) = load_keyed_cases("svg") else {
+        eprintln!("corpus not cloned as a sibling (or set ASCIICHEM_CORPUS); skipping");
+        return;
+    };
+    assert!(
+        cases.len() >= 7,
+        "expected the depiction family, got {} cases",
+        cases.len()
+    );
+
+    let mut failures = Vec::new();
+    let mut checked = 0;
+    for case in &cases {
+        let id = case_id(case);
+        let input = case
+            .get("input")
+            .and_then(|value| value.as_str())
+            .expect("depiction input");
+        let golden = case
+            .get("svg")
+            .and_then(|value| value.as_str())
+            .expect("depiction svg golden");
+        let nodes = match asciichem::parse_nodes(input) {
+            Ok(nodes) => nodes,
+            Err(error) => {
+                failures.push(format!("{id}: parse failed: {error}"));
+                continue;
+            }
+        };
+        checked += 1;
+        let rendered = asciichem::svg::render_formula(&nodes);
+        if rendered != golden {
+            failures.push(format!("{id}: structural svg diverges from the golden"));
+        }
+    }
+    eprintln!(
+        "depiction: {checked} golden renders over {} cases",
+        cases.len()
+    );
+    assert!(
+        failures.is_empty(),
+        "{} depiction mismatch(es):\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
