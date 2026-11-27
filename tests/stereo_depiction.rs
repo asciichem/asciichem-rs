@@ -41,12 +41,7 @@ fn drawn_molfile(smiles: &str) -> String {
         let hcount = atom.hydrogens.map_or(0, |count| count + 1);
         out.push_str(&format!(
             "{:>10.4}{:>10.4}{:>10.4} {:<3} 0  0{:>3}{:>3}  0  0  0  0  0  0  0  0\n",
-            position.x,
-            -position.y,
-            0.0,
-            atom.element,
-            0,
-            hcount
+            position.x, -position.y, 0.0, atom.element, 0, hcount
         ));
     }
     for (bond_index, bond) in graph.bonds.iter().enumerate() {
@@ -105,7 +100,8 @@ fn synthesized_drawings_read_as_their_source_identities() {
     assert_ne!(l.inchi, d.inchi, "the enantiomer pair collapsed");
 
     // The drawings distinguish the pair byte-wise (the mirror test).
-    let render = |smiles: &str| svg::render_formula(&asciichem::parse_nodes(smiles).expect("parses"));
+    let render =
+        |smiles: &str| svg::render_formula(&asciichem::parse_nodes(smiles).expect("parses"));
     assert_ne!(
         render("@smiles(\"C[C@H](O)N\")"),
         render("@smiles(\"C[C@@H](O)N\")"),

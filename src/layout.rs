@@ -270,11 +270,7 @@ pub fn place_graph(graph: &LayoutGraph) -> Vec<Point> {
         .collect()
 }
 
-fn place_free_cycle(
-    members: &[usize],
-    positions: &mut [Option<Point>],
-    free_center_x: f64,
-) -> f64 {
+fn place_free_cycle(members: &[usize], positions: &mut [Option<Point>], free_center_x: f64) -> f64 {
     let radius = polygon_radius(members.len());
     place_polygon(
         members,
@@ -302,8 +298,14 @@ fn place_fused_cycle(members: &[usize], positions: &mut [Option<Point>]) {
         .iter()
         .find(|member| positions[**member].is_some() && **member != a)
         .expect("fused ring has two placed members");
-    let ia = members.iter().position(|member| *member == a).expect("member");
-    let ib = members.iter().position(|member| *member == b).expect("member");
+    let ia = members
+        .iter()
+        .position(|member| *member == a)
+        .expect("member");
+    let ib = members
+        .iter()
+        .position(|member| *member == b)
+        .expect("member");
     let ideal_a = ideal_point(members.len(), ia, 0.0);
     let ideal_b = ideal_point(members.len(), ib, 0.0);
     let a_pos = positions[a].expect("placed");
@@ -336,7 +338,10 @@ fn place_anchored_cycle(members: &[usize], positions: &mut [Option<Point>]) {
         .iter()
         .find(|member| positions[**member].is_some())
         .expect("anchored ring has a placed member");
-    let anchor_index = members.iter().position(|member| *member == anchor).expect("member");
+    let anchor_index = members
+        .iter()
+        .position(|member| *member == anchor)
+        .expect("member");
     let anchor_pos = positions[anchor].expect("placed");
     let vertex_angle = angle_of_member(members.len(), anchor_index);
     let center_angle = center_angle_away_from_placed(anchor_pos, positions, vertex_angle);
@@ -378,18 +383,11 @@ fn center_angle_away_from_placed(
 // Zigzag growth: each generation turns the opposite way from its
 // parent, so chains alternate instead of curling. Tracked per atom
 // as [parent, incomingAngle, turn].
-fn grow(
-    start: usize,
-    positions: &mut [Option<Point>],
-    graph: &LayoutGraph,
-) {
+fn grow(start: usize, positions: &mut [Option<Point>], graph: &LayoutGraph) {
     let start_pos = positions[start].expect("seed placed");
     let mut visited: std::collections::HashMap<usize, (Option<usize>, f64, f64)> =
         std::collections::HashMap::new();
-    visited.insert(
-        start,
-        (None, start_pos.y.atan2(start_pos.x), -1.0),
-    );
+    visited.insert(start, (None, start_pos.y.atan2(start_pos.x), -1.0));
     let mut queue: std::collections::VecDeque<usize> = std::collections::VecDeque::new();
     queue.push_back(start);
     while let Some(current) = queue.pop_front() {

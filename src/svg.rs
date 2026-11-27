@@ -241,7 +241,11 @@ pub fn synthesize_stereo_wedges(
                 continue;
             }
             bond_index = Some(i);
-            neighbor = Some(if bond.from == index { bond.to } else { bond.from });
+            neighbor = Some(if bond.from == index {
+                bond.to
+            } else {
+                bond.from
+            });
             break;
         }
         let Some(bond_index) = bond_index else {
@@ -313,7 +317,8 @@ fn orientation(points: &[(f64, f64, f64)]) -> f64 {
     let u = [b.0 - a.0, b.1 - a.1, b.2 - a.2];
     let v = [c.0 - a.0, c.1 - a.1, c.2 - a.2];
     let w = [d.0 - a.0, d.1 - a.1, d.2 - a.2];
-    (u[1] * v[2] - u[2] * v[1]) * w[0] + (u[2] * v[0] - u[0] * v[2]) * w[1]
+    (u[1] * v[2] - u[2] * v[1]) * w[0]
+        + (u[2] * v[0] - u[0] * v[2]) * w[1]
         + (u[0] * v[1] - u[1] * v[0]) * w[2]
 }
 

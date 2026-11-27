@@ -1862,7 +1862,10 @@ fn depiction_svg_contract() {
             failures.push(format!("{id}: structural svg diverges from the golden"));
         }
     }
-    eprintln!("depiction: {checked} golden renders over {} cases", cases.len());
+    eprintln!(
+        "depiction: {checked} golden renders over {} cases",
+        cases.len()
+    );
     assert!(
         failures.is_empty(),
         "{} depiction mismatch(es):\n{}",
