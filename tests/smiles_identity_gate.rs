@@ -40,7 +40,6 @@ fn the_local_smiles_path_derives_the_recorded_identities() {
     }
 
     let mut ran = 0usize;
-    let mut skipped: Vec<String> = Vec::new();
     let mut failures = Vec::new();
     for case in &cases {
         let id = case["id"].as_str().expect("id");
@@ -60,13 +59,9 @@ fn the_local_smiles_path_derives_the_recorded_identities() {
         }
     }
     eprintln!(
-        "local smiles identity gate: {ran} cases vs the oracle, {} skips, {} failures",
-        skipped.len(),
+        "local smiles identity gate: {ran} cases vs the oracle, {} failures",
         failures.len()
     );
-    for skip in &skipped {
-        eprintln!("  skip: {skip}");
-    }
     assert!(
         failures.is_empty(),
         "{} local smile identities diverged:\n{}",
