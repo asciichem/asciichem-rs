@@ -1873,3 +1873,70 @@ fn depiction_svg_contract() {
         failures.join("\n")
     );
 }
+
+// The molfile-write family gates the laid writer's bytes: every row's
+// golden embeds the reference writer's output (the geometry-aware
+// claims semantic — the identity batteries prove the drawn hand pairs
+// with the wedge code), re-emitted byte-exactly here. The enantiomer
+// pairs are the identity-facing acceptance (asciichem-rs#86).
+#[test]
+fn molfile_write_contract() {
+    let Some(cases) = load_keyed_cases("writtenMolfile") else {
+        eprintln!("corpus not cloned as a sibling (or set ASCIICHEM_CORPUS); skipping");
+        return;
+    };
+    assert!(
+        cases.len() >= 13,
+        "expected the molfile-write family, got {} cases",
+        cases.len()
+    );
+
+    let mut failures = Vec::new();
+    let mut checked = 0;
+    for case in &cases {
+        let id = case_id(case);
+        let smiles = case
+            .get("smiles")
+            .and_then(|value| value.as_str())
+            .expect("write-golden smiles");
+        let golden = case
+            .get("writtenMolfile")
+            .and_then(|value| value.as_str())
+            .expect("write-golden bytes");
+        let nodes = match asciichem::smiles::parse_smiles(smiles) {
+            Ok(nodes) => nodes,
+            Err(error) => {
+                failures.push(format!("{id}: parse failed: {error}"));
+                continue;
+            }
+        };
+        let molecule = match nodes.first() {
+            Some(asciichem::model::Node::Molecule(mol)) => mol.clone(),
+            other => {
+                failures.push(format!("{id}: not a molecule: {other:?}"));
+                continue;
+            }
+        };
+        checked += 1;
+        match asciichem::molfile::write_molfile(&molecule, "") {
+            Ok(written) if written == golden => {}
+            Ok(written) => {
+                failures.push(format!(
+                    "{id}: the written molfile diverges from the golden"
+                ));
+                let _ = written;
+            }
+            Err(error) => failures.push(format!("{id}: write failed: {error}")),
+        }
+    }
+    eprintln!(
+        "molfile-write: {checked} golden writes over {} cases",
+        cases.len()
+    );
+    assert!(
+        failures.is_empty(),
+        "{} write mismatch(es):\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
