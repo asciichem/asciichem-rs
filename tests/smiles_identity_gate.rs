@@ -5,11 +5,11 @@
 //! no fixture edits. The recorded exclusions: the 2 tetrahedral cases
 //! gate through the pipe since the geometry-aware wedge landed
 //! (asciichem-rs#86 — the enantiomer pair rides the equality battery
-//! in identity.rs) — the remaining skips are the 2 directional-bond
-//! cases (the SMILES-side stereo carries in the native parser; the
-//! excluded pair is the same phase-2 set chemomer's gate records) and
-//! the 2 transcription disagreements (the fixture smiles differ from
-//! their own recorded molfiles).
+//! in identity.rs) and the 2 directional-bond cases gate since the
+//! E/Z fixtures re-recorded from drawn coordinates (inchi-tests
+//! v0.3.43's re-record: the /b layer survives the oracle now) — the
+//! remaining skips are the 2 transcription disagreements (the fixture
+//! smiles differ from their own recorded molfiles).
 
 use std::fs;
 use std::path::PathBuf;
@@ -48,9 +48,7 @@ fn the_local_smiles_path_derives_the_recorded_identities() {
         };
         if matches!(
             id,
-            "identity/e-2-butene"
-                | "identity/z-2-butene"
-                | "identity/sulfuric-acid"
+            "identity/sulfuric-acid"
                 | "identity/sulfate-2"
         ) {
             skipped.push(id.to_string());
