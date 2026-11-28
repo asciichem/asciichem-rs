@@ -46,11 +46,7 @@ fn the_local_smiles_path_derives_the_recorded_identities() {
         let Some(smiles) = case["smiles"].as_str() else {
             continue;
         };
-        if matches!(
-            id,
-            "identity/sulfuric-acid"
-                | "identity/sulfate-2"
-        ) {
+        if matches!(id, "identity/sulfuric-acid" | "identity/sulfate-2") {
             skipped.push(id.to_string());
             continue;
         }
