@@ -13,7 +13,7 @@ env:
   # The identity oracle corpus (chemomer/inchi-tests) — the same pin
   # chemomer's own CI gates the engine at; the identity family must
   # never drift from the engine it consumes.
-  CHEMOMER_CORPUS_REF: v0.3.43
+  CHEMOMER_CORPUS_REF: v0.3.44
   # The leptris XML engine behind the CML round-trip and the
   # citation layer (the leptris family directive: XML formats go
   # through libleptris, never hand-rolled strings). Pinned tag,

@@ -5,11 +5,12 @@
 //! no fixture edits. The recorded exclusions: the 2 tetrahedral cases
 //! gate through the pipe since the geometry-aware wedge landed
 //! (asciichem-rs#86 — the enantiomer pair rides the equality battery
-//! in identity.rs) and the 2 directional-bond cases gate since the
-//! E/Z fixtures re-recorded from drawn coordinates (inchi-tests
-//! v0.3.43's re-record: the /b layer survives the oracle now) — the
-//! remaining skips are the 2 transcription disagreements (the fixture
-//! smiles differ from their own recorded molfiles).
+//! in identity.rs), the 2 directional-bond cases gate since the E/Z
+//! fixtures re-recorded from drawn coordinates (inchi-tests v0.3.43:
+//! the /b layer survives the oracle now), and the transcription pair
+//! gates since the corpus re-recorded those molfiles from their own
+//! SMILES (inchi-tests v0.3.44 — they had carried a systemic
+//! bond-order transcription error). The gate gates every row.
 
 use std::fs;
 use std::path::PathBuf;
@@ -39,17 +40,13 @@ fn the_local_smiles_path_derives_the_recorded_identities() {
     }
 
     let mut ran = 0usize;
-    let mut skipped = Vec::new();
+    let mut skipped: Vec<String> = Vec::new();
     let mut failures = Vec::new();
     for case in &cases {
         let id = case["id"].as_str().expect("id");
         let Some(smiles) = case["smiles"].as_str() else {
             continue;
         };
-        if matches!(id, "identity/sulfuric-acid" | "identity/sulfate-2") {
-            skipped.push(id.to_string());
-            continue;
-        }
         let recorded = case["inchi"].as_str().expect("recorded inchi");
         ran += 1;
         match asciichem::identity::derive_from_smiles(smiles) {
